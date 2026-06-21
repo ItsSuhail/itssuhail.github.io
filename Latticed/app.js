@@ -9,6 +9,7 @@ let electronAngle = 0;
 let electronOrbitRadius = 0.6;
 let holePulsingMesh = null;
 let holePulseTime = 0;
+let isInteracting = false;
 
 // Lattice vectors (Cartesian vectors representing the unit cell)
 let uA = new THREE.Vector3();
@@ -57,7 +58,7 @@ const LATTICE_DATA = {
             "Atoms occupy only the 8 corners of the cube.",
             "Each corner atom is shared by 8 unit cells, contributing 1/8 to each: \\(8 \\times 1/8 = 1\\) atom/cell.",
             "Edge length \\(a\\) and radius \\(r\\) are related by: \\(a = 2r\\).",
-            "Relatively open structure with 47.6% void space."
+            "Relatively open structure with 47.6% void space. Contains a central Cubic Void (size ~ 0.732r)."
         ]
     },
     bcc: {
@@ -71,7 +72,7 @@ const LATTICE_DATA = {
             "Atoms occupy the 8 corners and 1 at the body center.",
             "Rank: \\(8 \\times 1/8\\) (corners) + \\(1\\) (body center) = 2 atoms/cell.",
             "Atoms touch along the body diagonal: \\(a\\sqrt{3} = 4r\\).",
-            "Coordination number is 8 (each corner atom touches the body center)."
+            "Coordination number is 8. Contains 6 Octahedral voids (on faces) and 12 Tetrahedral voids (on faces). Requires adjacent body-center ghost atoms to visualize coordination shape."
         ]
     },
     fcc: {
@@ -99,7 +100,7 @@ const LATTICE_DATA = {
             "ABAB... layer stacking. The hexagonal unit cell contains 6 net atoms.",
             "Rank: \\(12 \\times 1/6\\) (corners) + \\(2 \\times 1/2\\) (face centers) + \\(3\\) (middle layer) = 6 atoms.",
             "Lattice constants: \\(a = 2r\\), and height \\(c = a\\sqrt{8/3} \\approx 1.633a\\).",
-            "Coordination number is 12. Packing efficiency is 74%."
+            "Coordination number is 12. Contains 6 Octahedral voids and 12 Tetrahedral voids (6 T1 inside, 6 T2 completed by adjacent mid-layer B-atom ghost atoms)."
         ]
     },
     nacl: {
@@ -343,6 +344,14 @@ function init() {
     controls.maxDistance = 25;
     controls.minDistance = 2;
     
+    // Pause auto-rotation when user interacts with the canvas, and resume on release
+    controls.addEventListener('start', () => {
+        isInteracting = true;
+    });
+    controls.addEventListener('end', () => {
+        isInteracting = false;
+    });
+    
     // Lighting
     const ambientLight = new THREE.AmbientLight(0x22223b, 1.5);
     scene.add(ambientLight);
@@ -460,6 +469,26 @@ function initMaterials() {
             wireframe: true,
             transparent: true,
             opacity: 0.5
+        }),
+        voidCubic: new THREE.MeshStandardMaterial({
+            color: 0xf59e0b, // Golden yellow
+            transparent: true,
+            opacity: 0.65,
+            roughness: 0.1,
+            blending: THREE.NormalBlending
+        }),
+        ghostAtom: new THREE.MeshStandardMaterial({
+            color: 0x3b82f6, // Blue
+            transparent: true,
+            opacity: 0.25, // Faded
+            roughness: 0.2,
+            metalness: 0.1
+        }),
+        voidBond: new THREE.LineBasicMaterial({
+            color: 0x94a3b8, // Slate grey
+            transparent: true,
+            opacity: 0.5,
+            linewidth: 1.5
         })
     };
 }
@@ -562,6 +591,9 @@ function updateClippingPlanes() {
     materials.bond.clippingPlanes = activeClippingPlanes;
     materials.voidTetrahedral.clippingPlanes = activeClippingPlanes;
     materials.voidOctahedral.clippingPlanes = activeClippingPlanes;
+    materials.voidCubic.clippingPlanes = activeClippingPlanes;
+    materials.ghostAtom.clippingPlanes = activeClippingPlanes;
+    materials.voidBond.clippingPlanes = activeClippingPlanes;
     materials.vacancy.clippingPlanes = activeClippingPlanes;
     materials.electron.clippingPlanes = activeClippingPlanes;
     materials.hole.clippingPlanes = activeClippingPlanes;
@@ -933,6 +965,9 @@ function updateModel() {
             if (state.style === 'ball-stick') {
                 generateBonds(atomsData, aParam - 0.1, aParam + 0.1);
             }
+            
+            // Highlight Voids inside SC
+            drawSCVoids(atomRadius);
         } else if (state.model === 'bcc') {
             atomRadius = state.style === 'space-fill' ? (aParam * Math.sqrt(3)) / 4 : 0.55;
             const latticePos = getLatticePositions('body');
@@ -944,6 +979,9 @@ function updateModel() {
                 const cornerToCenter = (aParam * Math.sqrt(3)) / 2;
                 generateBonds(atomsData, cornerToCenter - 0.1, cornerToCenter + 0.1);
             }
+            
+            // Highlight Voids inside BCC
+            drawBCCVoids(atomRadius);
         } else if (state.model === 'fcc') {
             atomRadius = state.style === 'space-fill' ? (aParam * Math.sqrt(2)) / 4 : 0.55;
             const latticePos = getLatticePositions('face');
@@ -1000,6 +1038,9 @@ function updateModel() {
                 // Bonds from mid layer to top and bottom layers (approx distance a)
                 generateBonds(atomsData, 0.1, aParam + 0.2);
             }
+            
+            // Highlight Voids inside HCP
+            drawHCPVoids(atomRadius);
         }
     } else if (state.category === 'bravais') {
         const latticePos = getLatticePositions(state.bravaisVariation);
@@ -1322,11 +1363,149 @@ function updateModel() {
     updateLegendUI();
 }
 
+// Helper to draw dashed coordination lines from a center point to an array of target points
+function drawCoordinationLines(center, targets) {
+    targets.forEach(target => {
+        const points = [center, target];
+        const geom = new THREE.BufferGeometry().setFromPoints(points);
+        const line = new THREE.Line(geom, materials.voidBond);
+        voidsGroup.add(line);
+    });
+}
+
+// Helper to render a semi-transparent ghost atom at adjacent cell positions
+function addGhostAtom(position, radius) {
+    let duplicate = false;
+    voidsGroup.children.forEach(c => {
+        if (c.geometry && c.geometry.type === 'SphereGeometry' && c.position.distanceTo(position) < 0.01 && c.material === materials.ghostAtom) {
+            duplicate = true;
+        }
+    });
+    
+    if (!duplicate) {
+        const geom = new THREE.SphereGeometry(radius, 24, 24);
+        const mesh = new THREE.Mesh(geom, materials.ghostAtom);
+        mesh.position.copy(position);
+        voidsGroup.add(mesh);
+        
+        // Add a thin wireframe border to make it look distinct
+        const wireMat = new THREE.MeshBasicMaterial({
+            color: 0x3b82f6,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.12
+        });
+        const wireMesh = new THREE.Mesh(geom, wireMat);
+        wireMesh.position.copy(position);
+        voidsGroup.add(wireMesh);
+    }
+}
+
+// Highlight Cubic void in Simple Cubic (SC)
+function drawSCVoids(atomRadius) {
+    if (state.voids === 'none' || state.voids !== 'cubic') return;
+    
+    const rCubic = state.style === 'space-fill' ? atomRadius * (Math.sqrt(3) - 1) : 0.35;
+    
+    const voidPosCart = fractToCart(0.5, 0.5, 0.5);
+    
+    // Add void mesh
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(rCubic, 24, 24), materials.voidCubic);
+    mesh.position.copy(voidPosCart);
+    voidsGroup.add(mesh);
+    
+    // Surrounding atoms (8 corners)
+    const corners = [];
+    for (let x = 0; x <= 1; x++) {
+        for (let y = 0; y <= 1; y++) {
+            for (let z = 0; z <= 1; z++) {
+                corners.push(fractToCart(x, y, z));
+            }
+        }
+    }
+    
+    drawCoordinationLines(voidPosCart, corners);
+}
+
+// Highlight Tetrahedral/Octahedral voids in BCC
+function drawBCCVoids(atomRadius) {
+    if (state.voids === 'none') return;
+    
+    const rOct = state.style === 'space-fill' ? atomRadius * 0.154 : 0.15;
+    const rTet = state.style === 'space-fill' ? atomRadius * 0.291 : 0.20;
+    
+    const bodyCenterCart = fractToCart(0.5, 0.5, 0.5);
+    
+    // 1. Octahedral Voids (Face Centers)
+    if (state.voids === 'octahedral' || state.voids === 'both') {
+        const faceCenters = [
+            { pos: new THREE.Vector3(0.5, 0.5, 0), ghostDir: new THREE.Vector3(0, 0, -1), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(1,1,0)] },
+            { pos: new THREE.Vector3(0.5, 0.5, 1), ghostDir: new THREE.Vector3(0, 0, 1), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(1,0,1), new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)] },
+            { pos: new THREE.Vector3(0.5, 0, 0.5), ghostDir: new THREE.Vector3(0, -1, 0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,1), new THREE.Vector3(1,0,1)] },
+            { pos: new THREE.Vector3(0.5, 1, 0.5), ghostDir: new THREE.Vector3(0, 1, 0), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(1,1,0), new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)] },
+            { pos: new THREE.Vector3(0, 0.5, 0.5), ghostDir: new THREE.Vector3(-1, 0, 0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1), new THREE.Vector3(0,1,1)] },
+            { pos: new THREE.Vector3(1, 0.5, 0.5), ghostDir: new THREE.Vector3(1, 0, 0), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,1,0), new THREE.Vector3(1,0,1), new THREE.Vector3(1,1,1)] }
+        ];
+        
+        faceCenters.forEach(fc => {
+            const voidPosCart = fractToCart(fc.pos.x, fc.pos.y, fc.pos.z);
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rOct, 16, 16), materials.voidOctahedral);
+            mesh.position.copy(voidPosCart);
+            voidsGroup.add(mesh);
+            
+            // Adjacent body center (ghost atom)
+            const ghostPosFrac = new THREE.Vector3(0.5, 0.5, 0.5).add(fc.ghostDir);
+            const ghostPosCart = fractToCart(ghostPosFrac.x, ghostPosFrac.y, ghostPosFrac.z);
+            addGhostAtom(ghostPosCart, atomRadius);
+            
+            // Coordination lines: 4 corners + current body center + ghost body center
+            const coordinating = [
+                bodyCenterCart,
+                ghostPosCart,
+                ...fc.corners.map(c => fractToCart(c.x, c.y, c.z))
+            ];
+            drawCoordinationLines(voidPosCart, coordinating);
+        });
+    }
+    
+    // 2. Tetrahedral Voids (Render on faces z=0 and z=1)
+    if (state.voids === 'tetrahedral' || state.voids === 'both') {
+        const tetVoids = [
+            { pos: new THREE.Vector3(0.5, 0.25, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0)] },
+            { pos: new THREE.Vector3(0.5, 0.75, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(1,1,0)] },
+            { pos: new THREE.Vector3(0.25, 0.5, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)] },
+            { pos: new THREE.Vector3(0.75, 0.5, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,1,0)] },
+            
+            { pos: new THREE.Vector3(0.5, 0.25, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(1,0,1)] },
+            { pos: new THREE.Vector3(0.5, 0.75, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)] },
+            { pos: new THREE.Vector3(0.25, 0.5, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(0,1,1)] },
+            { pos: new THREE.Vector3(0.75, 0.5, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(1,0,1), new THREE.Vector3(1,1,1)] }
+        ];
+        
+        tetVoids.forEach(tv => {
+            const voidPosCart = fractToCart(tv.pos.x, tv.pos.y, tv.pos.z);
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
+            mesh.position.copy(voidPosCart);
+            voidsGroup.add(mesh);
+            
+            const ghostPosFrac = new THREE.Vector3(0.5, 0.5, 0.5).add(tv.ghostDir);
+            const ghostPosCart = fractToCart(ghostPosFrac.x, ghostPosFrac.y, ghostPosFrac.z);
+            addGhostAtom(ghostPosCart, atomRadius);
+            
+            const coordinating = [
+                bodyCenterCart,
+                ghostPosCart,
+                ...tv.corners.map(c => fractToCart(c.x, c.y, c.z))
+            ];
+            drawCoordinationLines(voidPosCart, coordinating);
+        });
+    }
+}
+
 // Highlight Tetrahedral/Octahedral voids in FCC
 function drawFCCVoids(atomRadius) {
     if (state.voids === 'none') return;
     
-    // In FCC, octahedral void radius is 0.414 * r, tetrahedral is 0.225 * r
     const rOct = state.style === 'space-fill' ? atomRadius * 0.414 : 0.28;
     const rTet = state.style === 'space-fill' ? atomRadius * 0.225 : 0.18;
     
@@ -1340,9 +1519,20 @@ function drawFCCVoids(atomRadius) {
         ];
         
         octPos.forEach(pos => {
+            const voidPosCart = fractToCart(pos.x, pos.y, pos.z);
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(rOct, 16, 16), materials.voidOctahedral);
-            mesh.position.copy(fractToCart(pos.x, pos.y, pos.z));
+            mesh.position.copy(voidPosCart);
             voidsGroup.add(mesh);
+            
+            // Only draw coordination lines for the body center void to avoid visual clutter
+            if (pos.x === 0.5 && pos.y === 0.5 && pos.z === 0.5) {
+                const faceCenters = [
+                    fractToCart(0.5, 0.5, 0), fractToCart(0.5, 0.5, 1),
+                    fractToCart(0.5, 0, 0.5), fractToCart(0.5, 1, 0.5),
+                    fractToCart(0, 0.5, 0.5), fractToCart(1, 0.5, 0.5)
+                ];
+                drawCoordinationLines(voidPosCart, faceCenters);
+            }
         });
     }
     
@@ -1356,9 +1546,131 @@ function drawFCCVoids(atomRadius) {
         ];
         
         tetPos.forEach(pos => {
+            const voidPosCart = fractToCart(pos.x, pos.y, pos.z);
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
-            mesh.position.copy(fractToCart(pos.x, pos.y, pos.z));
+            mesh.position.copy(voidPosCart);
             voidsGroup.add(mesh);
+            
+            const cornerX = pos.x < 0.5 ? 0 : 1;
+            const cornerY = pos.y < 0.5 ? 0 : 1;
+            const cornerZ = pos.z < 0.5 ? 0 : 1;
+            
+            const coordinating = [
+                fractToCart(cornerX, cornerY, cornerZ),
+                fractToCart(0.5, cornerY, cornerZ),
+                fractToCart(cornerX, 0.5, cornerZ),
+                fractToCart(cornerX, cornerY, 0.5)
+            ];
+            drawCoordinationLines(voidPosCart, coordinating);
+        });
+    }
+}
+
+// Highlight Tetrahedral/Octahedral voids in HCP
+function drawHCPVoids(atomRadius) {
+    if (state.voids === 'none') return;
+    
+    const rOct = state.style === 'space-fill' ? atomRadius * 0.414 : 0.26;
+    const rTet = state.style === 'space-fill' ? atomRadius * 0.225 : 0.16;
+    const cHalf = cParam / 2;
+    
+    // Bottom A-layer (z = -c/2)
+    const bottomCenter = new THREE.Vector3(0, 0, -cHalf);
+    const bottomRing = [];
+    for (let i = 0; i < 6; i++) {
+        const angle = (i * 60 * Math.PI) / 180;
+        bottomRing.push(new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), -cHalf));
+    }
+    
+    // Top A-layer (z = c/2)
+    const topCenter = new THREE.Vector3(0, 0, cHalf);
+    const topRing = [];
+    for (let i = 0; i < 6; i++) {
+        const angle = (i * 60 * Math.PI) / 180;
+        topRing.push(new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), cHalf));
+    }
+    
+    // Mid B-layer (z = 0)
+    const rMid = aParam / Math.sqrt(3);
+    const midAngles = [30, 150, 270];
+    const midAtoms = [];
+    for (let i = 0; i < 3; i++) {
+        const angle = (midAngles[i] * Math.PI) / 180;
+        midAtoms.push(new THREE.Vector3(rMid * Math.cos(angle), rMid * Math.sin(angle), 0));
+    }
+    
+    // Mid B-layer ghost atoms (outside boundaries)
+    const midGhosts = [
+        new THREE.Vector3(0, 2 * aParam / Math.sqrt(3), 0),
+        new THREE.Vector3(-aParam, -aParam / Math.sqrt(3), 0),
+        new THREE.Vector3(aParam, -aParam / Math.sqrt(3), 0)
+    ];
+    
+    // 1. Octahedral Voids (6 inside unit cell)
+    if (state.voids === 'octahedral' || state.voids === 'both') {
+        const octVoids = [
+            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), cHalf / 2), ghost: midGhosts[0], atoms: [midAtoms[0], midAtoms[1], topCenter, topRing[1], topRing[2]] },
+            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf / 2), ghost: midGhosts[1], atoms: [midAtoms[1], midAtoms[2], topCenter, topRing[3], topRing[4]] },
+            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf / 2), ghost: midGhosts[2], atoms: [midAtoms[0], midAtoms[2], topCenter, topRing[5], topRing[0]] },
+            
+            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), -cHalf / 2), ghost: midGhosts[0], atoms: [midAtoms[0], midAtoms[1], bottomCenter, bottomRing[1], bottomRing[2]] },
+            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf / 2), ghost: midGhosts[1], atoms: [midAtoms[1], midAtoms[2], bottomCenter, bottomRing[3], bottomRing[4]] },
+            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf / 2), ghost: midGhosts[2], atoms: [midAtoms[0], midAtoms[2], bottomCenter, bottomRing[5], bottomRing[0]] }
+        ];
+        
+        octVoids.forEach(ov => {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rOct, 16, 16), materials.voidOctahedral);
+            mesh.position.copy(ov.pos);
+            voidsGroup.add(mesh);
+            
+            // Add the B-layer ghost atom for coordination completeness
+            addGhostAtom(ov.ghost, atomRadius);
+            
+            const coordinating = [ov.ghost, ...ov.atoms];
+            drawCoordinationLines(ov.pos, coordinating);
+        });
+    }
+    
+    // 2. Tetrahedral Voids (12 inside unit cell)
+    if (state.voids === 'tetrahedral' || state.voids === 'both') {
+        // T1 Voids: Directly above/below B-layer atoms (correct height at 3c/8 or 0.75 * cHalf)
+        const t1Voids = [
+            { pos: new THREE.Vector3(midAtoms[0].x, midAtoms[0].y, cHalf * 0.75), atoms: [midAtoms[0], topCenter, topRing[0], topRing[1]] },
+            { pos: new THREE.Vector3(midAtoms[1].x, midAtoms[1].y, cHalf * 0.75), atoms: [midAtoms[1], topCenter, topRing[2], topRing[3]] },
+            { pos: new THREE.Vector3(midAtoms[2].x, midAtoms[2].y, cHalf * 0.75), atoms: [midAtoms[2], topCenter, topRing[4], topRing[5]] },
+            
+            { pos: new THREE.Vector3(midAtoms[0].x, midAtoms[0].y, -cHalf * 0.75), atoms: [midAtoms[0], bottomCenter, bottomRing[0], bottomRing[1]] },
+            { pos: new THREE.Vector3(midAtoms[1].x, midAtoms[1].y, -cHalf * 0.75), atoms: [midAtoms[1], bottomCenter, bottomRing[2], bottomRing[3]] },
+            { pos: new THREE.Vector3(midAtoms[2].x, midAtoms[2].y, -cHalf * 0.75), atoms: [midAtoms[2], bottomCenter, bottomRing[4], bottomRing[5]] }
+        ];
+        
+        t1Voids.forEach(tv => {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
+            mesh.position.copy(tv.pos);
+            voidsGroup.add(mesh);
+            drawCoordinationLines(tv.pos, tv.atoms);
+        });
+        
+        // T2 Voids: Pointing sideways, completed by adjacent B-layer ghost atoms
+        const t2Voids = [
+            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), cHalf * 0.75), ghost: midGhosts[0], atoms: [topCenter, topRing[1], topRing[2]] },
+            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf * 0.75), ghost: midGhosts[1], atoms: [topCenter, topRing[3], topRing[4]] },
+            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf * 0.75), ghost: midGhosts[2], atoms: [topCenter, topRing[5], topRing[0]] },
+            
+            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), -cHalf * 0.75), ghost: midGhosts[0], atoms: [bottomCenter, bottomRing[1], bottomRing[2]] },
+            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf * 0.75), ghost: midGhosts[1], atoms: [bottomCenter, bottomRing[3], bottomRing[4]] },
+            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf * 0.75), ghost: midGhosts[2], atoms: [bottomCenter, bottomRing[5], bottomRing[0]] }
+        ];
+        
+        t2Voids.forEach(tv => {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
+            mesh.position.copy(tv.pos);
+            voidsGroup.add(mesh);
+            
+            addGhostAtom(tv.ghost, atomRadius);
+            
+            const coordinating = [tv.ghost, ...tv.atoms];
+            drawCoordinationLines(tv.pos, coordinating);
         });
     }
 }
@@ -1372,18 +1684,42 @@ function updateDetailsUI() {
         data = LATTICE_DATA[state.model];
         badgeText = "Lattice";
         
-        // Voids and planes are relevant to lattices (specifically FCC/CCP)
+        // Voids and planes are relevant to lattices
         document.getElementById('section-planes-control').style.display = 'block';
-        if (state.model === 'fcc') {
-            document.getElementById('section-voids-control').style.display = 'block';
+        document.getElementById('section-voids-control').style.display = 'block';
+        
+        const btnTv = document.getElementById('btn-tv');
+        const btnOv = document.getElementById('btn-ov');
+        const btnBoth = document.getElementById('btn-both-voids');
+        const btnNone = document.getElementById('btn-none-voids');
+        
+        if (state.model === 'sc') {
+            btnTv.innerText = "Cubic";
+            btnTv.dataset.voids = "cubic";
+            btnTv.style.display = "flex";
+            btnOv.style.display = "none";
+            btnBoth.style.display = "none";
+            
+            if (state.voids !== 'none' && state.voids !== 'cubic') {
+                state.voids = 'none';
+            }
         } else {
-            document.getElementById('section-voids-control').style.display = 'none';
-            state.voids = 'none';
-            // Set void tabs active state
-            document.querySelectorAll('[data-voids]').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.voids === 'none');
-            });
+            btnTv.innerText = "Tetrahedral";
+            btnTv.dataset.voids = "tetrahedral";
+            btnTv.style.display = "flex";
+            btnOv.style.display = "flex";
+            btnBoth.style.display = "flex";
+            
+            if (state.voids === 'cubic') {
+                state.voids = 'none';
+            }
         }
+        
+        // Sync button active classes
+        btnNone.classList.toggle('active', state.voids === 'none');
+        btnTv.classList.toggle('active', state.voids === 'tetrahedral' || state.voids === 'cubic');
+        btnOv.classList.toggle('active', state.voids === 'octahedral');
+        btnBoth.classList.toggle('active', state.voids === 'both');
     } else if (state.category === 'bravais') {
         data = BRAVAIS_DATA[state.bravaisSystem];
         badgeText = "Bravais System";
@@ -1529,12 +1865,21 @@ function updateLegendUI() {
             items.push({ color: '#3b82f6', text: 'Lattice Atom' });
         }
         
-        // Voids in legend
-        if (state.voids === 'tetrahedral' || state.voids === 'both') {
-            items.push({ color: '#f97316', text: 'Tetrahedral Void (Size ~ 0.225r)' });
+        // Voids and ghost atoms in legend
+        if (state.model === 'sc' && state.voids === 'cubic') {
+            items.push({ color: '#f59e0b', text: 'Cubic Void (Size ~ 0.732r)' });
         }
-        if (state.voids === 'octahedral' || state.voids === 'both') {
-            items.push({ color: '#ec4899', text: 'Octahedral Void (Size ~ 0.414r)' });
+        if (state.model !== 'sc') {
+            if (state.voids === 'tetrahedral' || state.voids === 'both') {
+                items.push({ color: '#f97316', text: 'Tetrahedral Void (Size ~ 0.225r)' });
+            }
+            if (state.voids === 'octahedral' || state.voids === 'both') {
+                items.push({ color: '#ec4899', text: 'Octahedral Void (Size ~ 0.414r)' });
+            }
+        }
+        // If voids are active and it's BCC or HCP, show the Ghost Atom legend item!
+        if (state.voids !== 'none' && (state.model === 'bcc' || state.model === 'hcp')) {
+            items.push({ color: 'rgba(59, 130, 246, 0.35)', text: 'Ghost Atom (Adjacent Cell)' });
         }
     } else if (state.category === 'bravais') {
         items.push({ color: '#3b82f6', text: 'Lattice Node / Atom' });
@@ -1791,8 +2136,8 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     
-    // Auto Rotation if enabled
-    if (state.autoRotate) {
+    // Auto Rotation if enabled and not currently interacting
+    if (state.autoRotate && !isInteracting) {
         atomsGroup.rotation.y += 0.003;
         bondsGroup.rotation.y += 0.003;
         boundsGroup.rotation.y += 0.003;
