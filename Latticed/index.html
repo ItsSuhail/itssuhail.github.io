@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Latticed - 3D Solid State & Crystal Visualizer</title>
+    
+    <!-- Meta tags for SEO -->
+    <meta name="description" content="An interactive 3D Solid State and Crystal Lattice Visualizer for Class 12 NCERT and JEE. Visualize SC, BCC, FCC, HCP, NaCl, ZnS, Miller planes, and unit cell voids.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Background WebGL Canvas -->
+        <div id="canvas-container"></div>
+        
+        <!-- Sidebar Controls -->
+        <aside class="sidebar glass" id="control-sidebar">
+            <header class="app-header">
+                <div class="logo">
+                    <i data-lucide="box" class="logo-icon animate-pulse"></i>
+                    <h1>Latticed</h1>
+                </div>
+                <p class="subtitle">3D Solid State Visualizer</p>
+            </header>
+
+            <nav class="category-tabs">
+                <button class="tab-btn active" data-category="lattices">
+                    <i data-lucide="layers"></i> Lattices
+                </button>
+                <button class="tab-btn" data-category="bravais">
+                    <i data-lucide="grid"></i> Bravais Systems
+                </button>
+                <button class="tab-btn" data-category="compounds">
+                    <i data-lucide="atom"></i> Compounds
+                </button>
+                <button class="tab-btn" data-category="defects">
+                    <i data-lucide="shield-alert"></i> Defects
+                </button>
+            </nav>
+
+            <div class="control-sections">
+                <!-- Lattices Section -->
+                <section class="control-group active" id="section-lattices">
+                    <h3>Select Crystal Lattice</h3>
+                    <div class="grid-buttons">
+                        <button class="select-btn active" data-model="sc">
+                            <span class="btn-title">Simple Cubic (SC)</span>
+                            <span class="btn-desc">Corner atoms only</span>
+                        </button>
+                        <button class="select-btn" data-model="bcc">
+                            <span class="btn-title">Body-Centered (BCC)</span>
+                            <span class="btn-desc">Corners + Body Center</span>
+                        </button>
+                        <button class="select-btn" data-model="fcc">
+                            <span class="btn-title">Face-Centered (FCC)</span>
+                            <span class="btn-desc">Corners + Face Centers</span>
+                        </button>
+                        <button class="select-btn" data-model="hcp">
+                            <span class="btn-title">Hexagonal Close (HCP)</span>
+                            <span class="btn-desc">ABAB... Stacking Stucture</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Bravais Systems Section -->
+                <section class="control-group" id="section-bravais">
+                    <h3>Select Crystal System</h3>
+                    <div class="custom-select-container">
+                        <select id="bravais-system-select" class="glass-select">
+                            <option value="cubic">Cubic (a = b = c, α = β = γ = 90°)</option>
+                            <option value="tetragonal">Tetragonal (a = b ≠ c, α = β = γ = 90°)</option>
+                            <option value="orthorhombic">Orthorhombic (a ≠ b ≠ c, α = β = γ = 90°)</option>
+                            <option value="hexagonal">Hexagonal (a = b ≠ c, α = β = 90°, γ = 120°)</option>
+                            <option value="rhombohedral">Rhombohedral (a = b = c, α = β = γ ≠ 90°)</option>
+                            <option value="monoclinic">Monoclinic (a ≠ b ≠ c, α = γ = 90°, β ≠ 90°)</option>
+                            <option value="triclinic">Triclinic (a ≠ b ≠ c, α ≠ β ≠ γ ≠ 90°)</option>
+                        </select>
+                    </div>
+                    
+                    <h3 class="margin-top-15">Lattice Variation</h3>
+                    <div class="grid-buttons-small" id="bravais-variation-buttons">
+                        <!-- Filled dynamically based on system -->
+                        <button class="select-btn active" data-variation="primitive">Primitive (P)</button>
+                        <button class="select-btn" data-variation="body">Body-Centered (I)</button>
+                        <button class="select-btn" data-variation="face">Face-Centered (F)</button>
+                    </div>
+                </section>
+
+                <!-- Compounds Section -->
+                <section class="control-group" id="section-compounds">
+                    <h3>Select Ionic / Covalent Example</h3>
+                    <div class="grid-buttons">
+                        <button class="select-btn active" data-model="nacl">
+                            <span class="btn-title">Rock Salt (NaCl)</span>
+                            <span class="btn-desc">FCC Cl⁻, Octahedral Voids Na⁺</span>
+                        </button>
+                        <button class="select-btn" data-model="cscl">
+                            <span class="btn-title">Cesium Chloride (CsCl)</span>
+                            <span class="btn-desc">SC Cl⁻, Body Center Cs⁺</span>
+                        </button>
+                        <button class="select-btn" data-model="zns">
+                            <span class="btn-title">Zinc Blende (ZnS)</span>
+                            <span class="btn-desc">FCC S²⁻, Alternate TV Zn²⁺</span>
+                        </button>
+                        <button class="select-btn" data-model="caf2">
+                            <span class="btn-title">Fluorite (CaF₂)</span>
+                            <span class="btn-desc">FCC Ca²⁺, All TV F⁻</span>
+                        </button>
+                        <button class="select-btn" data-model="diamond">
+                            <span class="btn-title">Diamond</span>
+                            <span class="btn-desc">Covalent C, FCC + ½ TV C</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Defects & Doping Section -->
+                <section class="control-group" id="section-defects">
+                    <h3>Select Defect / Doping</h3>
+                    <div class="grid-buttons">
+                        <button class="select-btn active" data-model="schottky">
+                            <span class="btn-title">Schottky Defect</span>
+                            <span class="btn-desc">Missing Na⁺ and Cl⁻ vacancy pair</span>
+                        </button>
+                        <button class="select-btn" data-model="frenkel">
+                            <span class="btn-title">Frenkel Defect</span>
+                            <span class="btn-desc">Ag⁺ dislocated to interstitial void</span>
+                        </button>
+                        <button class="select-btn" data-model="doping-n">
+                            <span class="btn-title">n-type Doping (P-doped)</span>
+                            <span class="btn-desc">P replaces C in Diamond + free e⁻</span>
+                        </button>
+                        <button class="select-btn" data-model="doping-p">
+                            <span class="btn-title">p-type Doping (B-doped)</span>
+                            <span class="btn-desc">B replaces C in Diamond + hole</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Display Settings -->
+                <section class="control-group border-top">
+                    <h3>Display Settings</h3>
+                    
+                    <div class="toggle-group">
+                        <label class="toggle-label">View Style</label>
+                        <div class="segmented-control">
+                            <button class="segment-btn active" data-style="ball-stick">
+                                <i data-lucide="git-commit"></i> Ball-Stick
+                            </button>
+                            <button class="segment-btn" data-style="space-fill">
+                                <i data-lucide="circle-dot"></i> Space-Fill
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="checkbox-options">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="toggle-bounds" checked>
+                            <span class="checkmark"></span>
+                            Unit Cell Bounds
+                        </label>
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="toggle-cut-spheres">
+                            <span class="checkmark"></span>
+                            View Unit Cell Fraction (Clipping)
+                        </label>
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="toggle-rotate" checked>
+                            <span class="checkmark"></span>
+                            Auto Rotate
+                        </label>
+                    </div>
+                </section>
+
+                <!-- Voids Section (Conditional show) -->
+                <section class="control-group border-top" id="section-voids-control">
+                    <h3>Highlight Voids</h3>
+                    <div class="segmented-control-three">
+                        <button class="segment-btn active" data-voids="none">None</button>
+                        <button class="segment-btn" data-voids="tetrahedral" id="btn-tv">Tetrahedral</button>
+                        <button class="segment-btn" data-voids="octahedral" id="btn-ov">Octahedral</button>
+                        <button class="segment-btn" data-voids="both" id="btn-both-voids">Both</button>
+                    </div>
+                </section>
+
+                <!-- Plane Slicing Section -->
+                <section class="control-group border-top" id="section-planes-control">
+                    <h3>Miller Slicing Plane</h3>
+                    <div class="segmented-control-five">
+                        <button class="segment-btn active" data-plane="none">None</button>
+                        <button class="segment-btn" data-plane="100">(100)</button>
+                        <button class="segment-btn" data-plane="110">(110)</button>
+                        <button class="segment-btn" data-plane="111">(111)</button>
+                        <button class="segment-btn" data-plane="custom" id="btn-custom-plane">Custom</button>
+                    </div>
+                    
+                    <!-- Custom hkl input fields -->
+                    <div class="custom-hkl-container" id="custom-hkl-inputs">
+                        <div class="hkl-input-field">
+                            <label for="plane-h">h</label>
+                            <input type="number" id="plane-h" value="1" min="0" max="4" step="1">
+                        </div>
+                        <div class="hkl-input-field">
+                            <label for="plane-k">k</label>
+                            <input type="number" id="plane-k" value="1" min="0" max="4" step="1">
+                        </div>
+                        <div class="hkl-input-field">
+                            <label for="plane-l">l</label>
+                            <input type="number" id="plane-l" value="1" min="0" max="4" step="1">
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </aside>
+
+        <!-- Right / Info Panel Overlay -->
+        <main class="info-panel glass" id="info-overlay">
+            <header class="info-header">
+                <h2 id="info-title">Simple Cubic (SC)</h2>
+                <div class="badge" id="info-badge">Lattice</div>
+            </header>
+
+            <div class="info-stats">
+                <div class="stat-card">
+                    <span class="stat-num" id="stat-z">1</span>
+                    <span class="stat-label">Rank (Z) <span class="tooltip" data-tooltip="Number of atoms per unit cell">?</span></span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-num" id="stat-efficiency">52.4%</span>
+                    <span class="stat-label">Packing Eff.</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-num" id="stat-cn">6</span>
+                    <span class="stat-label">Coord. No.</span>
+                </div>
+            </div>
+
+            <div class="info-details">
+                <div class="detail-row">
+                    <span class="detail-label" id="info-relation-label">Edge-Radius Relation:</span>
+                    <span class="detail-val formula" id="info-formula">a = 2r</span>
+                </div>
+                <p id="info-description" class="description-text">
+                    In a simple cubic lattice, atoms occupy only the corners of the cube. They touch along the edges, giving the coordination number of 6.
+                </p>
+            </div>
+
+            <!-- Density Calculator -->
+            <div class="density-calculator">
+                <h4>NCERT Numerical Helper: Density Calculator</h4>
+                <p class="calc-formula">\(d = \frac{Z \times M}{N_A \times a^3}\)</p>
+                
+                <div class="calc-inputs">
+                    <div class="input-field">
+                        <label for="calc-z">Rank Z</label>
+                        <input type="text" id="calc-z" value="1" readonly>
+                    </div>
+                    <div class="input-field">
+                        <label for="calc-m">Mass M (g/mol)</label>
+                        <input type="number" id="calc-m" value="58.5" step="0.1">
+                    </div>
+                    <div class="input-field">
+                        <label for="calc-a">Edge a (pm)</label>
+                        <input type="number" id="calc-a" value="564" step="1">
+                    </div>
+                </div>
+                
+                <div class="calc-result">
+                    <span>Calculated Density:</span>
+                    <strong id="calc-density-val">2.16 g/cm³</strong>
+                </div>
+            </div>
+
+            <!-- NCERT Notes Briefing -->
+            <div class="revision-notes">
+                <h4>Revision Notes</h4>
+                <ul class="notes-list" id="revision-notes-list">
+                    <li>Atoms at corners contribute 1/8 to the unit cell.</li>
+                    <li>Simple cubic has 8 corner atoms, so \(8 \times 1/8 = 1\) atom per cell.</li>
+                    <li>Octahedral voids are 4 times Z, Tetrahedral voids are 2 times Z (for FCC).</li>
+                </ul>
+            </div>
+        </main>
+
+        <!-- Help / Key Legend Overlay -->
+        <div class="legend-panel glass">
+            <h4>Atom Key</h4>
+            <div id="legend-colors">
+                <div class="legend-item"><span class="legend-dot" style="background: #3b82f6;"></span> Atom</div>
+            </div>
+        </div>
+
+        <!-- 3D Navigation Controls Tips -->
+        <div class="interaction-tip">
+            <i data-lucide="move"></i> Drag to rotate | Scroll to zoom | Right-click drag to pan
+        </div>
+    </div>
+
+    <!-- MathJax for formulas -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Core App JS -->
+    <script src="app.js"></script>
+</body>
+</html>
