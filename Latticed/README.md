@@ -2,7 +2,7 @@
 
 An interactive, high-performance 3D web visualizer designed for Class 12 NCERT, JEE, and materials science students to explore crystallographic systems, Bravais lattices, ionic compounds, defects, and semiconductor doping.
 
-🚀 **Live Demo:** [Host it on GitHub Pages!](https://ItsSuhail.github.io/Latticed/)
+🚀 **Live Demo:** [Hosted on GitHub Pages!](https://ItsSuhail.github.io/Latticed/)
 
 ---
 
