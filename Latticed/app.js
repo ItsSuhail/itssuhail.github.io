@@ -1001,42 +1001,68 @@ function updateModel() {
             atomRadius = state.style === 'space-fill' ? aParam / 2 : 0.52;
             const cHalf = cParam / 2;
             
-            // Draw 17 lattice atoms:
-            // 7 in bottom plane, 3 in middle plane, 7 in top plane
             const rawAtoms = [];
             
-            // Bottom plane (Z = -c/2)
-            rawAtoms.push({ pos: new THREE.Vector3(0, 0, -cHalf), type: 'bottom-center' });
+            // A sublattice — Bottom plane (Z = -c/2)
+            // Role 'center': the hexagonal prism center atom bonds only to its 6 ring atoms, not to B-layer atoms.
+            // The B-layer (mid) atoms nestle into triangular pockets formed by ring pairs only.
+            rawAtoms.push({ pos: new THREE.Vector3(0, 0, -cHalf), type: 'A', role: 'center' });
             for (let i = 0; i < 6; i++) {
                 const angle = (i * 60 * Math.PI) / 180;
-                rawAtoms.push({ pos: new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), -cHalf), type: 'bottom-ring' });
+                rawAtoms.push({ pos: new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), -cHalf), type: 'A', role: 'ring' });
             }
             
-            // Top plane (Z = c/2)
-            rawAtoms.push({ pos: new THREE.Vector3(0, 0, cHalf), type: 'top-center' });
+            // A sublattice — Top plane (Z = c/2)
+            rawAtoms.push({ pos: new THREE.Vector3(0, 0, cHalf), type: 'A', role: 'center' });
             for (let i = 0; i < 6; i++) {
                 const angle = (i * 60 * Math.PI) / 180;
-                rawAtoms.push({ pos: new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), cHalf), type: 'top-ring' });
+                rawAtoms.push({ pos: new THREE.Vector3(aParam * Math.cos(angle), aParam * Math.sin(angle), cHalf), type: 'A', role: 'ring' });
             }
             
-            // Mid plane (Z = 0) - 3 nested atoms
+            // B sublattice — Mid plane (Z = 0) — 3 interstitial B-layer atoms
             const rMid = aParam / Math.sqrt(3);
             const midAngles = [30, 150, 270];
             for (let i = 0; i < 3; i++) {
                 const angle = (midAngles[i] * Math.PI) / 180;
-                rawAtoms.push({ pos: new THREE.Vector3(rMid * Math.cos(angle), rMid * Math.sin(angle), 0), type: 'mid' });
+                rawAtoms.push({ pos: new THREE.Vector3(rMid * Math.cos(angle), rMid * Math.sin(angle), 0), type: 'B', role: 'mid' });
             }
             
             rawAtoms.forEach(atom => {
                 atomsData.push({ pos: atom.pos, material: materials.cation, r: atomRadius });
             });
             
-            // Generate HCP bonds
+            // Generate HCP bonds with crystallographic accuracy:
+            //   A-ring ↔ A-ring (adjacent, same plane) = a  → BOND
+            //   A-center ↔ A-ring (same plane)          = a  → BOND
+            //   A-ring ↔ B-mid (cross-layer)            = a  → BOND (each mid bonds to 2 ring per layer)
+            //   A-center ↔ B-mid  — SKIP: center is NOT one of the 3 pocket-forming ring atoms
+            //   B-mid ↔ B-mid     — SKIP: same sublattice, no real bond
             if (state.style === 'ball-stick') {
-                // Bonds in bottom and top rings
-                generateBonds(atomsData, aParam - 0.1, aParam + 0.1);
-                // Bonds from mid layer to top and bottom layers (approx distance a)
-                generateBonds(atomsData, 0.1, aParam + 0.2);
+                const bondRadius = 0.05;
+                const minD = aParam - 0.1;
+                const maxD = aParam + 0.1;
+                for (let i = 0; i < rawAtoms.length; i++) {
+                    for (let j = i + 1; j < rawAtoms.length; j++) {
+                        const ri = rawAtoms[i], rj = rawAtoms[j];
+                        // Skip B↔B (mid–mid): same sublattice
+                        if (ri.type === 'B' && rj.type === 'B') continue;
+                        // Skip center↔B: center atom is NOT a bonding partner for mid atoms
+                        if ((ri.role === 'center' && rj.role === 'mid') ||
+                            (ri.role === 'mid' && rj.role === 'center')) continue;
+                        const p1 = ri.pos;
+                        const p2 = rj.pos;
+                        const d = p1.distanceTo(p2);
+                        if (d >= minD && d <= maxD) {
+                            const dir = new THREE.Vector3().subVectors(p2, p1);
+                            const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                            const geom = new THREE.CylinderGeometry(bondRadius, bondRadius, d, 8);
+                            const bond = new THREE.Mesh(geom, materials.bond);
+                            bond.position.copy(mid);
+                            bond.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+                            bondsGroup.add(bond);
+                        }
+                    }
+                }
             }
             
             // Highlight Voids inside HCP
@@ -1265,9 +1291,30 @@ function updateModel() {
             atomsData.push({ pos: interstitialPos, material: materials.cation, r: rAg });
             
             if (state.style === 'ball-stick') {
+                // Pass 1: Ag_oct — Cl bonds (octahedral coordination, dist = a/2)
                 generateBonds(atomsData, (aParam/2) - 0.1, (aParam/2) + 0.1);
+                // Pass 2: Ag_int — Cl bonds only (tetrahedral void, dist = a√3/4)
+                // Cannot use generic generateBonds because Ag_oct atoms are also
+                // at dist a√3/4 from the interstitial → spurious Ag-Ag bonds.
+                // Instead, explicitly bond the interstitial only to its 4 Cl neighbors.
                 const tetDist = (aParam * Math.sqrt(3)) / 4;
-                generateBonds(atomsData, tetDist - 0.1, tetDist + 0.1);
+                const interstitialCartPos = interstitialPos;
+                atomsData.forEach(atom => {
+                    // Only bond to anions (Cl-), never to other cations
+                    if (atom.material !== materials.anion) return;
+                    const d = interstitialCartPos.distanceTo(atom.pos);
+                    if (d >= tetDist - 0.1 && d <= tetDist + 0.1) {
+                        const direction = new THREE.Vector3().subVectors(atom.pos, interstitialCartPos);
+                        const len = direction.length();
+                        const center = new THREE.Vector3().addVectors(interstitialCartPos, atom.pos).multiplyScalar(0.5);
+                        const bondRadius = state.style === 'ball-stick' ? 0.05 : 0.02;
+                        const geom = new THREE.CylinderGeometry(bondRadius, bondRadius, len, 8);
+                        const mesh = new THREE.Mesh(geom, materials.bond);
+                        mesh.position.copy(center);
+                        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+                        bondsGroup.add(mesh);
+                    }
+                });
             }
         } else if (state.model === 'doping-n') {
             atomRadius = state.style === 'space-fill' ? (aParam * Math.sqrt(3)) / 8 : 0.45;
