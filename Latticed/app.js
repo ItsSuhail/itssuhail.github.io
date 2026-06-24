@@ -2868,20 +2868,12 @@ function drawCollapsedOutline(system, centering) {
     let edges = [];
     
     switch (key) {
-        // Cubic Cases
+        // Cubic, Tetragonal, Rhombohedral, and Triclinic Z-Face End-Centered Cases
         case 'cubic-end':
-        // Tetragonal Cases
         case 'tetragonal-end':
-        // Rhombohedral Cases
         case 'rhombohedral-end':
-        // Monoclinic Cases
-        case 'monoclinic-body':
-        case 'monoclinic-face':
-        // Triclinic Cases
-        case 'triclinic-body':
-        case 'triclinic-face':
         case 'triclinic-end':
-            // Collapses/Reduces to primitive or end-centered of half volume
+            // Collapses/Reduces to primitive of half volume (rotated 45 deg in XY plane)
             vertices = [
                 new THREE.Vector3(0.5, 0.5, 0),   // 0
                 new THREE.Vector3(1, 0, 0),       // 1
@@ -2891,6 +2883,102 @@ function drawCollapsedOutline(system, centering) {
                 new THREE.Vector3(1, 0, 1),       // 5
                 new THREE.Vector3(0.5, -0.5, 1),  // 6
                 new THREE.Vector3(0, 0, 1)        // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+
+        case 'monoclinic-body':
+            // Collapses/Reduces to Monoclinic End-Centered (C) of same volume (basis: a, b, a+c)
+            vertices = [
+                new THREE.Vector3(0, 0, 0),       // 0
+                new THREE.Vector3(1, 0, 0),       // 1
+                new THREE.Vector3(1, 1, 0),       // 2
+                new THREE.Vector3(0, 1, 0),       // 3
+                new THREE.Vector3(1, 0, 1),       // 4
+                new THREE.Vector3(2, 0, 1),       // 5
+                new THREE.Vector3(2, 1, 1),       // 6
+                new THREE.Vector3(1, 1, 1)        // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            // Base centering diagonals on XZ-skewed face 1 (0, 3, 7, 4) centered at body center (0.5, 0.5, 0.5)
+            const mcBodyCenter1 = new THREE.Vector3(0.5, 0.5, 0.5);
+            [0, 3, 7, 4].forEach(i => {
+                drawCylinderLine(fractToCart(mcBodyCenter1.x, mcBodyCenter1.y, mcBodyCenter1.z), fractToCart(vertices[i].x, vertices[i].y, vertices[i].z), 0x00f0ff, 0.012);
+            });
+            // Base centering diagonals on opposite XZ-skewed face 2 (1, 2, 6, 5) centered at (1.5, 0.5, 0.5)
+            const mcBodyCenter2 = new THREE.Vector3(1.5, 0.5, 0.5);
+            [1, 2, 6, 5].forEach(i => {
+                drawCylinderLine(fractToCart(mcBodyCenter2.x, mcBodyCenter2.y, mcBodyCenter2.z), fractToCart(vertices[i].x, vertices[i].y, vertices[i].z), 0x00f0ff, 0.012);
+            });
+            break;
+
+        case 'monoclinic-face':
+            // Collapses/Reduces to Monoclinic End-Centered (C) of half volume (basis: 1/2(a+c), b, a)
+            vertices = [
+                new THREE.Vector3(0, 0, 0),         // 0
+                new THREE.Vector3(1, 0, 0),         // 1
+                new THREE.Vector3(1, 1, 0),         // 2
+                new THREE.Vector3(0, 1, 0),         // 3
+                new THREE.Vector3(0.5, 0, 0.5),     // 4
+                new THREE.Vector3(1.5, 0, 0.5),     // 5
+                new THREE.Vector3(1.5, 1, 0.5),     // 6
+                new THREE.Vector3(0.5, 1, 0.5)      // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            // Base centering diagonals on XY face (0, 1, 2, 3) centered at (0.5, 0.5, 0)
+            const mcFaceCenter1 = new THREE.Vector3(0.5, 0.5, 0);
+            [0, 1, 2, 3].forEach(i => {
+                drawCylinderLine(fractToCart(mcFaceCenter1.x, mcFaceCenter1.y, mcFaceCenter1.z), fractToCart(vertices[i].x, vertices[i].y, vertices[i].z), 0x00f0ff, 0.012);
+            });
+            // Base centering diagonals on opposite XY face (4, 5, 6, 7) centered at (1.0, 0.5, 0.5)
+            const mcFaceCenter2 = new THREE.Vector3(1.0, 0.5, 0.5);
+            [4, 5, 6, 7].forEach(i => {
+                drawCylinderLine(fractToCart(mcFaceCenter2.x, mcFaceCenter2.y, mcFaceCenter2.z), fractToCart(vertices[i].x, vertices[i].y, vertices[i].z), 0x00f0ff, 0.012);
+            });
+            break;
+
+        case 'triclinic-body':
+            // Collapses/Reduces to Triclinic Primitive (P) of half volume (basis: a, b, 1/2(a+b+c))
+            vertices = [
+                new THREE.Vector3(0, 0, 0),         // 0
+                new THREE.Vector3(1, 0, 0),         // 1
+                new THREE.Vector3(1, 1, 0),         // 2
+                new THREE.Vector3(0, 1, 0),         // 3
+                new THREE.Vector3(0.5, 0.5, 0.5),   // 4
+                new THREE.Vector3(1.5, 0.5, 0.5),   // 5
+                new THREE.Vector3(1.5, 1.5, 0.5),   // 6
+                new THREE.Vector3(0.5, 1.5, 0.5)    // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+
+        case 'triclinic-face':
+            // Collapses/Reduces to Triclinic Primitive (P) of quarter volume (basis: 1/2(a+b), 1/2(b+c), 1/2(a+c))
+            vertices = [
+                new THREE.Vector3(0, 0, 0),         // 0
+                new THREE.Vector3(0.5, 0.5, 0),     // 1
+                new THREE.Vector3(0.5, 1.0, 0.5),   // 2
+                new THREE.Vector3(0, 0.5, 0.5),     // 3
+                new THREE.Vector3(0.5, 0, 0.5),     // 4
+                new THREE.Vector3(1.0, 0.5, 0.5),   // 5
+                new THREE.Vector3(1.0, 1.0, 1.0),   // 6
+                new THREE.Vector3(0.5, 0.5, 1.0)    // 7
             ];
             edges = [
                 [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
