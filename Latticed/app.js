@@ -2,6 +2,7 @@
 
 // Global variables for Three.js
 let scene, camera, renderer, controls;
+let sandboxAtoms = [];
 let atomsGroup, bondsGroup, boundsGroup, voidsGroup, planesGroup;
 let freeElectronMesh = null;
 let freeElectronCenter = new THREE.Vector3();
@@ -26,10 +27,13 @@ let gammaParam = 90;
 
 // Application State
 let state = {
-    category: 'lattices', // 'lattices' | 'bravais' | 'compounds' | 'defects'
+    category: 'lattices', // 'lattices' | 'bravais' | 'compounds' | 'defects' | 'sandbox'
     model: 'sc',          // 'sc' | 'bcc' | 'fcc' | 'hcp' | 'nacl' | 'cscl' | 'zns' | 'caf2' | 'diamond' | 'schottky' | 'frenkel' | 'doping-n' | 'doping-p'
     bravaisSystem: 'cubic',
     bravaisVariation: 'primitive',
+    sandboxSystem: 'cubic',
+    sandboxCentering: 'primitive',
+    sandboxShowNeighbors: false,
     style: 'ball-stick',  // 'ball-stick' | 'space-fill'
     showBounds: true,
     cutSpheres: false,
@@ -40,6 +44,9 @@ let state = {
     customK: 1,
     customL: 1
 };
+
+let snapTargetsGroup = null;
+let snapPreviewMesh = null;
 
 // Materials dictionary
 let materials = {};
@@ -370,12 +377,14 @@ function init() {
     boundsGroup = new THREE.Group();
     voidsGroup = new THREE.Group();
     planesGroup = new THREE.Group();
+    snapTargetsGroup = new THREE.Group();
     
     scene.add(atomsGroup);
     scene.add(bondsGroup);
     scene.add(boundsGroup);
     scene.add(voidsGroup);
     scene.add(planesGroup);
+    scene.add(snapTargetsGroup);
     
     // Initialize Materials
     initMaterials();
@@ -489,6 +498,24 @@ function initMaterials() {
             transparent: true,
             opacity: 0.5,
             linewidth: 1.5
+        }),
+        boundsGhost: new THREE.LineBasicMaterial({
+            color: 0x94a3b8,
+            transparent: true,
+            opacity: 0.15,
+            linewidth: 1
+        }),
+        collapseAtom: new THREE.MeshStandardMaterial({
+            color: 0xef4444,
+            roughness: 0.2,
+            metalness: 0.1
+        }),
+        collapseAtomGhost: new THREE.MeshStandardMaterial({
+            color: 0xef4444,
+            transparent: true,
+            opacity: 0.25,
+            roughness: 0.2,
+            metalness: 0.1
         })
     };
 }
@@ -933,9 +960,30 @@ function updateModel() {
             aParam = 2.4; bParam = 3.0; cParam = 3.8;
             alphaParam = 75; betaParam = 85; gammaParam = 100;
         }
-    } else if (state.category === 'compounds') {
-        aParam = 3.0; bParam = 3.0; cParam = 3.0;
-        alphaParam = 90; betaParam = 90; gammaParam = 90;
+    } else if (state.category === 'sandbox') {
+        const sys = state.sandboxSystem;
+        if (sys === 'cubic') {
+            aParam = 3.0; bParam = 3.0; cParam = 3.0;
+            alphaParam = 90; betaParam = 90; gammaParam = 90;
+        } else if (sys === 'tetragonal') {
+            aParam = 3.0; bParam = 3.0; cParam = 4.2;
+            alphaParam = 90; betaParam = 90; gammaParam = 90;
+        } else if (sys === 'orthorhombic') {
+            aParam = 2.4; bParam = 3.2; cParam = 4.2;
+            alphaParam = 90; betaParam = 90; gammaParam = 90;
+        } else if (sys === 'hexagonal') {
+            aParam = 3.0; bParam = 3.0; cParam = 4.5;
+            alphaParam = 90; betaParam = 90; gammaParam = 120;
+        } else if (sys === 'rhombohedral') {
+            aParam = 3.0; bParam = 3.0; cParam = 3.0;
+            alphaParam = 75; betaParam = 75; gammaParam = 75;
+        } else if (sys === 'monoclinic') {
+            aParam = 2.6; bParam = 3.4; cParam = 4.0;
+            alphaParam = 90; betaParam = 105; gammaParam = 90;
+        } else if (sys === 'triclinic') {
+            aParam = 2.4; bParam = 3.0; cParam = 3.8;
+            alphaParam = 75; betaParam = 85; gammaParam = 100;
+        }
     }
     
     // Calculate lattice vectors in Cartesian space
@@ -949,6 +997,8 @@ function updateModel() {
     
     // Draw Slicing Plane
     drawMillerPlane();
+
+
     
     // Create Atoms & Bonds Lists
     let atomsData = [];
@@ -1398,6 +1448,11 @@ function updateModel() {
             holePulsingMesh.position.copy(holePos);
             atomsGroup.add(holePulsingMesh);
         }
+    } else if (state.category === 'sandbox') {
+        drawSandboxModel();
+        updateDetailsUI();
+        updateLegendUI();
+        return;
     }
     
     // Add atoms to scene
@@ -1796,6 +1851,150 @@ function updateDetailsUI() {
         state.plane = 'none';
     }
     
+    // Toggle card visibilities
+    const densityCard = document.getElementById('density-calculator-card');
+    const sandboxCard = document.getElementById('sandbox-analysis-card');
+    if (state.category === 'sandbox') {
+        if (densityCard) densityCard.style.display = 'none';
+        if (sandboxCard) sandboxCard.style.display = 'block';
+        
+        // Hide planes and voids panels
+        document.getElementById('section-planes-control').style.display = 'none';
+        document.getElementById('section-voids-control').style.display = 'none';
+        state.voids = 'none';
+        state.plane = 'none';
+        
+        const collapseInfo = getSandboxCollapseInfo(state.sandboxSystem, state.sandboxCentering);
+        const isValid = collapseInfo.isValid;
+        
+        const neighborsToggle = document.getElementById('sandbox-toggle-neighbors');
+        if (neighborsToggle) {
+            if (!isValid) {
+                neighborsToggle.checked = true;
+                neighborsToggle.disabled = true;
+                const container = document.getElementById('sandbox-neighbors-toggle-container');
+                if (container) {
+                    container.style.opacity = '0.5';
+                    container.style.cursor = 'not-allowed';
+                }
+            } else {
+                neighborsToggle.checked = state.sandboxShowNeighbors;
+                neighborsToggle.disabled = false;
+                const container = document.getElementById('sandbox-neighbors-toggle-container');
+                if (container) {
+                    container.style.opacity = '1.0';
+                    container.style.cursor = 'pointer';
+                }
+            }
+        }
+        
+        const netZ = (state.sandboxCentering === 'primitive') ? 1 :
+                     (state.sandboxCentering === 'body') ? 2 :
+                     (state.sandboxCentering === 'face') ? 4 : 2; // end is 2
+        
+        const al = (alphaParam * Math.PI) / 180;
+        const be = (betaParam * Math.PI) / 180;
+        const ga = (gammaParam * Math.PI) / 180;
+        const cosAlpha = Math.cos(al);
+        const cosBeta = Math.cos(be);
+        const cosGamma = Math.cos(ga);
+        const term = 1 - cosAlpha*cosAlpha - cosBeta*cosBeta - cosGamma*cosGamma + 2*cosAlpha*cosBeta*cosGamma;
+        const volume = aParam * bParam * cParam * Math.sqrt(Math.max(0, term));
+        
+        let minD = Infinity;
+        const corners = [
+            new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(1, 1, 0), new THREE.Vector3(1, 0, 1),
+            new THREE.Vector3(0, 1, 1), new THREE.Vector3(1, 1, 1)
+        ];
+        const centeredFracs = [];
+        if (state.sandboxCentering === 'body') {
+            centeredFracs.push(new THREE.Vector3(0.5, 0.5, 0.5));
+        } else if (state.sandboxCentering === 'face') {
+            centeredFracs.push(
+                new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 1),
+                new THREE.Vector3(0.5, 0, 0.5), new THREE.Vector3(0.5, 1, 0.5),
+                new THREE.Vector3(0, 0.5, 0.5), new THREE.Vector3(1, 0.5, 0.5)
+            );
+        } else if (state.sandboxCentering === 'end') {
+            centeredFracs.push(
+                new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 1)
+            );
+        }
+        
+        const atomFracs = corners.concat(centeredFracs);
+        const atomPositions = atomFracs.map(f => fractToCart(f.x, f.y, f.z));
+        for (let i = 0; i < atomPositions.length; i++) {
+            for (let j = i + 1; j < atomPositions.length; j++) {
+                const d = atomPositions[i].distanceTo(atomPositions[j]);
+                if (d < minD && d > 0.1) {
+                    minD = d;
+                }
+            }
+        }
+        
+        let packingEff = "N/A";
+        if (minD !== Infinity && minD > 0.1) {
+            const R = minD / 2;
+            const sphereVol = (4 / 3) * Math.PI * Math.pow(R, 3);
+            const totalAtomVol = netZ * sphereVol;
+            const eff = (totalAtomVol / volume) * 100;
+            if (eff <= 100 && eff > 0) {
+                packingEff = `${eff.toFixed(1)}%`;
+            }
+        }
+        
+        document.getElementById('info-title').innerText = `${capitalize(state.sandboxSystem)} ${capitalize(state.sandboxCentering === 'body' ? 'Body-Centered' : state.sandboxCentering === 'face' ? 'Face-Centered' : state.sandboxCentering === 'end' ? 'End-Centered' : 'Primitive')}`;
+        
+        const badgeEl = document.getElementById('info-badge');
+        badgeEl.innerText = isValid ? "Stable Bravais" : "Geometry Collapses";
+        badgeEl.className = isValid ? "badge stable" : "badge collapses";
+        
+        document.getElementById('info-description').innerHTML = isValid 
+            ? `This configuration represents a stable, standard Bravais lattice for the <strong>${capitalize(state.sandboxSystem)}</strong> system.` 
+            : `This configuration is unstable and collapses/reduces into a <strong>${collapseInfo.targetSystem}</strong> lattice.`;
+        
+        document.getElementById('stat-z').innerText = netZ.toString();
+        document.getElementById('stat-efficiency').innerText = isValid ? packingEff : "Collapses";
+        
+        let cnText = "Collapses";
+        if (isValid) {
+            if (state.sandboxSystem === 'cubic') {
+                cnText = (state.sandboxCentering === 'primitive') ? "6" : (state.sandboxCentering === 'body') ? "8" : "12";
+            } else {
+                cnText = "System Dep.";
+            }
+        }
+        document.getElementById('stat-cn').innerText = cnText;
+        
+        document.getElementById('info-relation-label').innerText = "Cell Volume:";
+        document.getElementById('info-formula').innerText = `${volume.toFixed(2)} Å³`;
+        
+        document.getElementById('sandbox-reducibility-status').innerHTML = isValid 
+            ? `<span style="color: #10b981;">🟢 Stable Bravais Lattice</span>` 
+            : `<span style="color: #f43f5e;">🔴 Geometry Collapses to ${collapseInfo.targetSystem}</span>`;
+        document.getElementById('sandbox-reducibility-text').innerHTML = collapseInfo.explanation;
+        
+        const notesContainer = document.getElementById('revision-notes-list');
+        if (notesContainer) {
+            notesContainer.innerHTML = `
+                <li>Centering types like cubic end-centered or tetragonal face-centered are redundant because they can be reduced to smaller cells of standard Bravais systems.</li>
+                <li>Centering in Hexagonal and Rhombohedral systems violates rotational symmetry, forcing the system to collapse to lower symmetry monoclinic or orthorhombic lattices.</li>
+                <li>Triclinic and primitive rhombohedral lattices do not have any centered variations in the 14 Bravais lattices.</li>
+            `;
+        }
+        
+        if (window.MathJax) {
+            MathJax.typesetPromise();
+        }
+        return;
+    } else {
+        if (densityCard) densityCard.style.display = 'block';
+        if (sandboxCard) sandboxCard.style.display = 'none';
+        document.getElementById('info-badge').className = "badge";
+    }
+    
     if (!data) return;
     
     // Fill text labels
@@ -1965,6 +2164,20 @@ function updateLegendUI() {
             items.push({ color: '#a78bfa', text: 'Boron Dopant (B)' });
             items.push({ color: '#a78bfa', text: 'Electron Vacancy Hole (Dashed)' });
         }
+    } else if (state.category === 'sandbox') {
+        const collapseInfo = getSandboxCollapseInfo(state.sandboxSystem, state.sandboxCentering);
+        const isValid = collapseInfo.isValid;
+        
+        items.push({ color: '#3b82f6', text: 'Corner / Lattice Atoms' });
+        if (state.sandboxCentering !== 'primitive') {
+            if (isValid) {
+                items.push({ color: '#3b82f6', text: 'Centered Atoms' });
+            } else {
+                items.push({ color: '#ef4444', text: 'Collapse-Causing Atoms' });
+                items.push({ color: 'rgba(59, 130, 246, 0.4)', text: 'Ghost Corner Atoms' });
+                items.push({ color: 'rgba(239, 68, 68, 0.4)', text: 'Ghost Centering Atoms' });
+            }
+        }
     }
     
     items.forEach(item => {
@@ -2055,6 +2268,8 @@ function bindUIEvents() {
                 document.getElementById('section-defects').classList.add('active');
                 const activeSub = document.querySelector('#section-defects .select-btn.active');
                 if (activeSub) state.model = activeSub.dataset.model;
+            } else if (state.category === 'sandbox') {
+                document.getElementById('section-sandbox').classList.add('active');
             }
             
             updateModel();
@@ -2169,6 +2384,87 @@ function bindUIEvents() {
             tooltip.classList.remove('active');
         });
     });
+
+    // Sandbox Crystal System Buttons
+    document.querySelectorAll('#sandbox-system-buttons .sandbox-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#sandbox-system-buttons .sandbox-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.sandboxSystem = btn.dataset.system;
+            updateModel();
+        });
+    });
+
+    // Sandbox Centering Buttons
+    document.querySelectorAll('#sandbox-centering-buttons .sandbox-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#sandbox-centering-buttons .sandbox-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.sandboxCentering = btn.dataset.centering;
+            updateModel();
+        });
+    });
+
+    // Sandbox Neighbors Toggle
+    const neighborsToggle = document.getElementById('sandbox-toggle-neighbors');
+    if (neighborsToggle) {
+        neighborsToggle.addEventListener('change', (e) => {
+            state.sandboxShowNeighbors = e.target.checked;
+            updateModel();
+        });
+    }
+
+    // Floating Auto-Rotate Button Click
+    const floatRotateBtn = document.getElementById('floating-rotate-btn');
+    if (floatRotateBtn) {
+        floatRotateBtn.addEventListener('click', (e) => {
+            toggleAutoRotate();
+        });
+    }
+
+    // Spacebar Key Shortcut to Toggle Auto-Rotate
+    window.addEventListener('keydown', (e) => {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') {
+            return;
+        }
+        if (e.code === 'Space') {
+            e.preventDefault();
+            toggleAutoRotate();
+        }
+    });
+
+    // Mouse click coordinate recorder and raycast color picker trigger
+    let pointerDownX = 0, pointerDownY = 0;
+    if (renderer && renderer.domElement) {
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            pointerDownX = e.clientX;
+            pointerDownY = e.clientY;
+        });
+        
+        renderer.domElement.addEventListener('pointerup', (e) => {
+            const deltaX = Math.abs(e.clientX - pointerDownX);
+            const deltaY = Math.abs(e.clientY - pointerDownY);
+            // Click threshold is 5 pixels
+            if (deltaX < 5 && deltaY < 5) {
+                handleCanvasClick(e);
+            }
+        });
+    }
+
+    // Color Dot Option Picker Clicks
+    document.querySelectorAll('.color-dot-option').forEach(dot => {
+        dot.addEventListener('click', (e) => {
+            if (selectedMeshForColoring) {
+                const hexColor = dot.dataset.color;
+                selectedMeshForColoring.material = selectedMeshForColoring.material.clone();
+                selectedMeshForColoring.material.color.set(hexColor);
+                // Keep nice physical rendering properties
+                selectedMeshForColoring.material.roughness = 0.15;
+                selectedMeshForColoring.material.metalness = 0.1;
+                hideColorPicker();
+            }
+        });
+    });
 }
 
 // Window resize handler
@@ -2210,6 +2506,582 @@ function animate() {
     
     controls.update();
     renderer.render(scene, camera);
+}
+
+// Sandbox Helper Functions
+
+function getSandboxCollapseInfo(system, centering) {
+    const key = `${system}-${centering}`;
+    switch (key) {
+        // Cubic Cases
+        case 'cubic-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Cubic Primitive (P)',
+                explanation: 'Standard Bravais lattice. Lattice points are located only at the corners.'
+            };
+        case 'cubic-body':
+            return {
+                isValid: true,
+                targetSystem: 'Cubic Body-Centered (I)',
+                explanation: 'Standard Bravais lattice. Lattice points are located at the corners and at the exact center of the body.'
+            };
+        case 'cubic-face':
+            return {
+                isValid: true,
+                targetSystem: 'Cubic Face-Centered (F)',
+                explanation: 'Standard Bravais lattice. Lattice points are located at the corners and at the centers of all six faces.'
+            };
+        case 'cubic-end':
+            return {
+                isValid: false,
+                targetSystem: 'Tetragonal Primitive (P)',
+                explanation: '<strong>End-centering a Cubic system collapses it to Tetragonal Primitive!</strong><br>Adding end-centers (on Z-faces) breaks the cubic 3-fold body diagonal symmetry, making the vertical c-axis unique. By choosing a smaller unit cell rotated by 45° in the XY plane, we define a smaller <strong>Tetragonal Primitive (P)</strong> lattice with half the volume ($a\' = a/\\sqrt{2}, c\' = a$).'
+            };
+
+        // Tetragonal Cases
+        case 'tetragonal-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Tetragonal Primitive (P)',
+                explanation: 'Standard Bravais lattice. Lattice points are at corners, with $a = b \\neq c$ and all angles at 90°.'
+            };
+        case 'tetragonal-body':
+            return {
+                isValid: true,
+                targetSystem: 'Tetragonal Body-Centered (I)',
+                explanation: 'Standard Bravais lattice. Lattice points are at corners and the body center.'
+            };
+        case 'tetragonal-face':
+            return {
+                isValid: false,
+                targetSystem: 'Tetragonal Body-Centered (I)',
+                explanation: '<strong>Tetragonal Face-Centered (F) is redundant and collapses to Tetragonal Body-Centered (I)!</strong><br>By selecting a smaller unit cell rotated 45° in the XY plane ($a\' = a/\\sqrt{2}, c\' = c$), we can define a smaller unit cell with half the volume that is <strong>Body-Centered (I)</strong>. Hence, Tetragonal F is crystallographically redundant.'
+            };
+        case 'tetragonal-end':
+            return {
+                isValid: false,
+                targetSystem: 'Tetragonal Primitive (P)',
+                explanation: '<strong>Tetragonal End-Centered (C) is redundant and collapses to Tetragonal Primitive (P)!</strong><br>Placing end-centered atoms on the Z-faces allows us to choose a smaller unit cell rotated 45° in the XY plane ($a\' = a/\\sqrt{2}, c\' = c$). This smaller cell has half the volume and contains only corner atoms, making it <strong>Tetragonal Primitive (P)</strong>.'
+            };
+
+        // Orthorhombic Cases
+        case 'orthorhombic-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Orthorhombic Primitive (P)',
+                explanation: 'Standard Bravais lattice. Lattice points only at corners, with $a \\neq b \\neq c$ and all angles at 90°.'
+            };
+        case 'orthorhombic-body':
+            return {
+                isValid: true,
+                targetSystem: 'Orthorhombic Body-Centered (I)',
+                explanation: 'Standard Bravais lattice. Lattice points at corners and body center.'
+            };
+        case 'orthorhombic-face':
+            return {
+                isValid: true,
+                targetSystem: 'Orthorhombic Face-Centered (F)',
+                explanation: 'Standard Bravais lattice. Lattice points at corners and all six face centers.'
+            };
+        case 'orthorhombic-end':
+            return {
+                isValid: true,
+                targetSystem: 'Orthorhombic End-Centered (C)',
+                explanation: 'Standard Bravais lattice. Lattice points at corners and the Z-face centers.'
+            };
+
+        // Hexagonal Cases
+        case 'hexagonal-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Hexagonal Primitive (P)',
+                explanation: 'Standard Bravais lattice. Hexagonal system only has a primitive Bravais lattice with $a = b \\neq c$, $\\alpha = \\beta = 90^\\circ, \\gamma = 120^\\circ$.'
+            };
+        case 'hexagonal-body':
+            return {
+                isValid: false,
+                targetSystem: 'Orthorhombic',
+                explanation: '<strong>Hexagonal Body-Centered (I) violates rotational symmetry!</strong><br>Adding a body-center atom breaks the 6-fold (and 3-fold) rotational axis of the hexagonal prism. This destroys the hexagonal system, collapsing the geometry to the lower-symmetry <strong>Orthorhombic</strong> system.'
+            };
+        case 'hexagonal-face':
+            return {
+                isValid: false,
+                targetSystem: 'Orthorhombic',
+                explanation: '<strong>Hexagonal Face-Centered (F) violates rotational symmetry!</strong><br>Adding face-center atoms breaks the 6-fold rotational symmetry along the c-axis, collapsing the crystal system to a lower-symmetry <strong>Orthorhombic</strong> system.'
+            };
+        case 'hexagonal-end':
+            return {
+                isValid: false,
+                targetSystem: 'Orthorhombic',
+                explanation: '<strong>Hexagonal End-Centered (C) violates rotational symmetry!</strong><br>Placing end-centered atoms on the Z-faces breaks the 6-fold rotational axis. The hexagonal prism symmetry collapses into a lower-symmetry <strong>Orthorhombic</strong> system (since a hexagonal base can be represented as an orthorhombic C-centered lattice with $b = a\\sqrt{3}$).'
+            };
+
+        // Rhombohedral Cases
+        case 'rhombohedral-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Rhombohedral Primitive (P)',
+                explanation: 'Standard Bravais lattice (often denoted as R). The cell is a stretched cube along its body diagonal: $a = b = c, \\alpha = \\beta = \\gamma \\neq 90^\\circ$.'
+            };
+        case 'rhombohedral-body':
+            return {
+                isValid: false,
+                targetSystem: 'Monoclinic',
+                explanation: '<strong>Rhombohedral Body-Centered (I) violates 3-fold symmetry!</strong><br>Adding a body-center atom destroys the 3-fold rotational axis along the main body diagonal. The symmetry collapses to the lower-symmetry <strong>Monoclinic</strong> system.'
+            };
+        case 'rhombohedral-face':
+            return {
+                isValid: false,
+                targetSystem: 'Triclinic',
+                explanation: '<strong>Rhombohedral Face-Centered (F) collapses to Triclinic!</strong><br>Adding face-centers to the rhombohedral cell breaks all mirror planes and rotational axes. The geometry collapses to the lowest-symmetry <strong>Triclinic</strong> system.'
+            };
+        case 'rhombohedral-end':
+            return {
+                isValid: false,
+                targetSystem: 'Monoclinic',
+                explanation: '<strong>Rhombohedral End-Centered (C) collapses to Monoclinic!</strong><br>Placing end-centered atoms on one pair of opposite faces breaks the 3-fold diagonal rotational symmetry. The lattice collapses into the lower-symmetry <strong>Monoclinic</strong> system.'
+            };
+
+        // Monoclinic Cases
+        case 'monoclinic-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Monoclinic Primitive (P)',
+                explanation: 'Standard Bravais lattice. $a \\neq b \\neq c$, $\\alpha = \\gamma = 90^\\circ \\neq \\beta$.'
+            };
+        case 'monoclinic-body':
+            return {
+                isValid: false,
+                targetSystem: 'Monoclinic End-Centered (C)',
+                explanation: '<strong>Monoclinic Body-Centered (I) is redundant and reduces to Monoclinic End-Centered (C)!</strong><br>A monoclinic body-centered lattice can be transformed into a monoclinic end-centered (C) lattice by choosing a new set of basis vectors in the XZ plane. Hence, it is redundant.'
+            };
+        case 'monoclinic-face':
+            return {
+                isValid: false,
+                targetSystem: 'Monoclinic End-Centered (C)',
+                explanation: '<strong>Monoclinic Face-Centered (F) is redundant and reduces to Monoclinic End-Centered (C)!</strong><br>Adding all face centers allows us to choose a smaller monoclinic cell with half the volume that is <strong>End-Centered (C)</strong>. Thus, Monoclinic F is redundant.'
+            };
+        case 'monoclinic-end':
+            return {
+                isValid: true,
+                targetSystem: 'Monoclinic End-Centered (C)',
+                explanation: 'Standard Bravais lattice. Lattice points are at corners and the Z-face centers.'
+            };
+
+        // Triclinic Cases
+        case 'triclinic-primitive':
+            return {
+                isValid: true,
+                targetSystem: 'Triclinic Primitive (P)',
+                explanation: 'Standard Bravais lattice. The lowest symmetry system with $a \\neq b \\neq c$ and $\\alpha \\neq \\beta \\neq \\gamma \\neq 90^\\circ$.'
+            };
+        case 'triclinic-body':
+            return {
+                isValid: false,
+                targetSystem: 'Triclinic Primitive (P)',
+                explanation: '<strong>Triclinic Body-Centered (I) collapses to Triclinic Primitive (P)!</strong><br>Since a triclinic lattice has no symmetry constraints, any centering can always be reduced to a smaller, primitive triclinic cell with half the volume by choosing new translation vectors.'
+            };
+        case 'triclinic-face':
+            return {
+                isValid: false,
+                targetSystem: 'Triclinic Primitive (P)',
+                explanation: '<strong>Triclinic Face-Centered (F) collapses to Triclinic Primitive (P)!</strong><br>Any face-centered triclinic lattice can be reduced to a smaller, primitive triclinic cell with 1/4 the volume by choosing a different primitive basis.'
+            };
+        case 'triclinic-end':
+            return {
+                isValid: false,
+                targetSystem: 'Triclinic Primitive (P)',
+                explanation: '<strong>Triclinic End-Centered (C) collapses to Triclinic Primitive (P)!</strong><br>Any end-centered triclinic lattice can be reduced to a smaller, primitive triclinic cell with half the volume.'
+            };
+
+        default:
+            return { isValid: true, targetSystem: '', explanation: '' };
+    }
+}
+
+function drawGhostBounds(shift) {
+    const points = [];
+    const corners = [];
+    for (let x = 0; x <= 1; x++) {
+        for (let y = 0; y <= 1; y++) {
+            for (let z = 0; z <= 1; z++) {
+                // clone the converted cartesian point, shift it, and store
+                corners.push(fractToCart(x, y, z).add(shift));
+            }
+        }
+    }
+    // Edges along x direction
+    points.push(corners[0], corners[4]);
+    points.push(corners[1], corners[5]);
+    points.push(corners[2], corners[6]);
+    points.push(corners[3], corners[7]);
+    // Edges along y direction
+    points.push(corners[0], corners[2]);
+    points.push(corners[1], corners[3]);
+    points.push(corners[4], corners[6]);
+    points.push(corners[5], corners[7]);
+    // Edges along z direction
+    points.push(corners[0], corners[1]);
+    points.push(corners[2], corners[3]);
+    points.push(corners[4], corners[5]);
+    points.push(corners[6], corners[7]);
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.LineSegments(geometry, materials.boundsGhost);
+    boundsGroup.add(line);
+}
+
+function drawSandboxModel() {
+    const collapseInfo = getSandboxCollapseInfo(state.sandboxSystem, state.sandboxCentering);
+    const isValid = collapseInfo.isValid;
+    
+    // Corners
+    const corners = [
+        new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(1, 1, 0), new THREE.Vector3(1, 0, 1),
+        new THREE.Vector3(0, 1, 1), new THREE.Vector3(1, 1, 1)
+    ];
+    
+    let atomRadius = 0.45;
+    if (state.style === 'space-fill') {
+        const sys = state.sandboxSystem;
+        if (sys === 'cubic') atomRadius = 0.5;
+        else if (sys === 'tetragonal') atomRadius = 0.45;
+        else if (sys === 'orthorhombic') atomRadius = 0.4;
+        else if (sys === 'hexagonal') atomRadius = 0.45;
+        else if (sys === 'rhombohedral') atomRadius = 0.45;
+        else if (sys === 'monoclinic') atomRadius = 0.4;
+        else atomRadius = 0.4;
+    }
+    
+    const mainAtomsData = [];
+    
+    // Add corners to main
+    corners.forEach(frac => {
+        mainAtomsData.push({
+            pos: fractToCart(frac.x, frac.y, frac.z),
+            material: materials.cation,
+            r: atomRadius
+        });
+    });
+    
+    // Centering fractions
+    const centeredFracs = [];
+    if (state.sandboxCentering === 'body') {
+        centeredFracs.push(new THREE.Vector3(0.5, 0.5, 0.5));
+    } else if (state.sandboxCentering === 'face') {
+        centeredFracs.push(
+            new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 1), // Z
+            new THREE.Vector3(0.5, 0, 0.5), new THREE.Vector3(0.5, 1, 0.5), // Y
+            new THREE.Vector3(0, 0.5, 0.5), new THREE.Vector3(1, 0.5, 0.5)  // X
+        );
+    } else if (state.sandboxCentering === 'end') {
+        centeredFracs.push(
+            new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 1)  // Z
+        );
+    }
+    
+    const centeringMaterial = isValid ? materials.cation : materials.collapseAtom;
+    
+    centeredFracs.forEach(frac => {
+        mainAtomsData.push({
+            pos: fractToCart(frac.x, frac.y, frac.z),
+            material: centeringMaterial,
+            r: atomRadius
+        });
+    });
+    
+    // Render main atoms
+    mainAtomsData.forEach(atom => {
+        addAtom(atom.pos, atom.material, atom.r);
+    });
+    
+    // Main bonds
+    if (state.style === 'ball-stick') {
+        let minD = Infinity;
+        for (let i = 0; i < mainAtomsData.length; i++) {
+            for (let j = i + 1; j < mainAtomsData.length; j++) {
+                const d = mainAtomsData[i].pos.distanceTo(mainAtomsData[j].pos);
+                if (d < minD && d > 0.1) {
+                    minD = d;
+                }
+            }
+        }
+        if (minD !== Infinity && minD > 0.2) {
+            generateBonds(mainAtomsData, minD - 0.15, minD + 0.15);
+        }
+    }
+    
+    // Draw 6 neighbors if collapsing or if show neighbors is toggled
+    const showNeighbors = !isValid || state.sandboxShowNeighbors;
+    if (showNeighbors) {
+        const shifts = [
+            uA.clone(),
+            uA.clone().negate(),
+            uB.clone(),
+            uB.clone().negate(),
+            uC.clone(),
+            uC.clone().negate()
+        ];
+        
+        shifts.forEach(shift => {
+            drawGhostBounds(shift);
+            
+            // Ghost corners
+            corners.forEach(frac => {
+                const pos = fractToCart(frac.x, frac.y, frac.z).add(shift);
+                const geom = new THREE.SphereGeometry(atomRadius, 16, 16);
+                const mesh = new THREE.Mesh(geom, materials.ghostAtom);
+                mesh.position.copy(pos);
+                atomsGroup.add(mesh);
+            });
+            
+            // Ghost centering atoms
+            const ghostCenteringMat = isValid ? materials.ghostAtom : materials.collapseAtomGhost;
+            centeredFracs.forEach(frac => {
+                const pos = fractToCart(frac.x, frac.y, frac.z).add(shift);
+                const geom = new THREE.SphereGeometry(atomRadius, 16, 16);
+                const mesh = new THREE.Mesh(geom, ghostCenteringMat);
+                mesh.position.copy(pos);
+                atomsGroup.add(mesh);
+            });
+        });
+    }
+    
+    // Draw collapsed outline if collapsing
+    if (!isValid) {
+        drawCollapsedOutline(state.sandboxSystem, state.sandboxCentering);
+    }
+}
+
+function capitalize(str) {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Drawing collapsed outline
+function drawCollapsedOutline(system, centering) {
+    const key = `${system}-${centering}`;
+    let vertices = [];
+    let edges = [];
+    
+    switch (key) {
+        // Cubic Cases
+        case 'cubic-end':
+        // Tetragonal Cases
+        case 'tetragonal-end':
+        // Rhombohedral Cases
+        case 'rhombohedral-end':
+        // Monoclinic Cases
+        case 'monoclinic-body':
+        case 'monoclinic-face':
+        // Triclinic Cases
+        case 'triclinic-body':
+        case 'triclinic-face':
+        case 'triclinic-end':
+            // Collapses/Reduces to primitive or end-centered of half volume
+            vertices = [
+                new THREE.Vector3(0.5, 0.5, 0),   // 0
+                new THREE.Vector3(1, 0, 0),       // 1
+                new THREE.Vector3(0.5, -0.5, 0),  // 2
+                new THREE.Vector3(0, 0, 0),       // 3
+                new THREE.Vector3(0.5, 0.5, 1),   // 4
+                new THREE.Vector3(1, 0, 1),       // 5
+                new THREE.Vector3(0.5, -0.5, 1),  // 6
+                new THREE.Vector3(0, 0, 1)        // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+            
+        case 'tetragonal-face':
+            // Collapses to Tetragonal Body-Centered (I) of half volume
+            vertices = [
+                new THREE.Vector3(0.5, 0.5, 0),   // 0
+                new THREE.Vector3(1, 0, 0),       // 1
+                new THREE.Vector3(0.5, -0.5, 0),  // 2
+                new THREE.Vector3(0, 0, 0),       // 3
+                new THREE.Vector3(0.5, 0.5, 1),   // 4
+                new THREE.Vector3(1, 0, 1),       // 5
+                new THREE.Vector3(0.5, -0.5, 1),  // 6
+                new THREE.Vector3(0, 0, 1)        // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            // Body-centered helper lines connecting (0.5, 0, 0.5) to the 8 corners of the new cell
+            const bodyCenter = new THREE.Vector3(0.5, 0, 0.5);
+            for (let i = 0; i < 8; i++) {
+                drawCylinderLine(fractToCart(bodyCenter.x, bodyCenter.y, bodyCenter.z), fractToCart(vertices[i].x, vertices[i].y, vertices[i].z), 0x00f0ff, 0.012);
+            }
+            break;
+            
+        case 'hexagonal-body':
+        case 'hexagonal-face':
+        case 'hexagonal-end':
+            // Collapses to Orthorhombic cell
+            vertices = [
+                new THREE.Vector3(0, 0, 0),     // 0
+                new THREE.Vector3(1, 1, 0),     // 1
+                new THREE.Vector3(2, 0, 0),     // 2
+                new THREE.Vector3(1, -1, 0),    // 3
+                new THREE.Vector3(0, 0, 1),     // 4
+                new THREE.Vector3(1, 1, 1),     // 5
+                new THREE.Vector3(2, 0, 1),     // 6
+                new THREE.Vector3(1, -1, 1)     // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+            
+        case 'rhombohedral-body':
+            // Collapses to Monoclinic of half volume by choosing a cell connecting corner to body center layer
+            vertices = [
+                new THREE.Vector3(0, 0, 0),       // 0
+                new THREE.Vector3(1, 0, 0),       // 1
+                new THREE.Vector3(1, 1, 0),       // 2
+                new THREE.Vector3(0, 1, 0),       // 3
+                new THREE.Vector3(0.5, 0.5, 0.5), // 4
+                new THREE.Vector3(1.5, 0.5, 0.5), // 5
+                new THREE.Vector3(1.5, 1.5, 0.5), // 6
+                new THREE.Vector3(0.5, 1.5, 0.5)  // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+            
+        case 'rhombohedral-face':
+            // Collapses to Triclinic
+            vertices = [
+                new THREE.Vector3(0.5, 0.5, 0),   // 0
+                new THREE.Vector3(1, 0, 0),       // 1
+                new THREE.Vector3(0.5, -0.5, 0),  // 2
+                new THREE.Vector3(0, 0, 0),       // 3
+                new THREE.Vector3(0.5, 0, 0.5),   // 4
+                new THREE.Vector3(1, -0.5, 0.5),  // 5
+                new THREE.Vector3(0.5, -1, 0.5),  // 6
+                new THREE.Vector3(0, -0.5, 0.5)   // 7
+            ];
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+                [4, 5], [5, 6], [6, 7], [7, 4], // Top
+                [0, 4], [1, 5], [2, 6], [3, 7]  // Verticals
+            ];
+            break;
+    }
+    
+    // Draw all edges as cyan cylinders
+    edges.forEach(edge => {
+        const p1 = fractToCart(vertices[edge[0]].x, vertices[edge[0]].y, vertices[edge[0]].z);
+        const p2 = fractToCart(vertices[edge[1]].x, vertices[edge[1]].y, vertices[edge[1]].z);
+        drawCylinderLine(p1, p2, 0x00f0ff, 0.022);
+    });
+}
+
+function drawCylinderLine(p1, p2, colorHex, radius = 0.02) {
+    const direction = new THREE.Vector3().subVectors(p2, p1);
+    const len = direction.length();
+    const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+    
+    const geom = new THREE.CylinderGeometry(radius, radius, len, 6);
+    const mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.8 });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.copy(center);
+    
+    const up = new THREE.Vector3(0, 1, 0);
+    mesh.quaternion.setFromUnitVectors(up, direction.clone().normalize());
+    boundsGroup.add(mesh);
+}
+
+// Toggle rotation function
+function toggleAutoRotate() {
+    state.autoRotate = !state.autoRotate;
+    
+    // Sync checkbox
+    const checkbox = document.getElementById('toggle-rotate');
+    if (checkbox) checkbox.checked = state.autoRotate;
+    
+    // Sync floating button icon
+    const btnIcon = document.getElementById('rotate-btn-icon');
+    if (btnIcon) {
+        btnIcon.setAttribute('data-lucide', state.autoRotate ? 'pause' : 'play');
+        if (window.lucide) {
+            lucide.createIcons();
+        }
+    }
+}
+
+// Canvas Click Atom Selector
+let selectedMeshForColoring = null;
+
+function handleCanvasClick(event) {
+    if (!renderer || !camera) return;
+    
+    // Calculate pointer position in normalized device coordinates
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+    
+    // Raycast against all meshes in atomsGroup
+    const intersects = raycaster.intersectObjects(atomsGroup.children, true);
+    
+    if (intersects.length > 0) {
+        const clickedMesh = intersects[0].object;
+        
+        // Ensure it's an atom sphere
+        if (clickedMesh.geometry && clickedMesh.geometry.type === 'SphereGeometry') {
+            showColorPicker(event.clientX, event.clientY, clickedMesh);
+        }
+    } else {
+        hideColorPicker();
+    }
+}
+
+function showColorPicker(clientX, clientY, mesh) {
+    selectedMeshForColoring = mesh;
+    const picker = document.getElementById('atom-color-picker');
+    if (!picker) return;
+    
+    picker.style.display = 'block';
+    
+    const pickerWidth = 180;
+    const pickerHeight = 65;
+    let left = clientX + 10;
+    let top = clientY + 10;
+    
+    if (left + pickerWidth > window.innerWidth) {
+        left = clientX - pickerWidth - 10;
+    }
+    if (top + pickerHeight > window.innerHeight) {
+        top = clientY - pickerHeight - 10;
+    }
+    
+    picker.style.left = `${left}px`;
+    picker.style.top = `${top}px`;
+}
+
+function hideColorPicker() {
+    const picker = document.getElementById('atom-color-picker');
+    if (picker) {
+        picker.style.display = 'none';
+    }
+    selectedMeshForColoring = null;
 }
 
 // Start the Visualizer on page load

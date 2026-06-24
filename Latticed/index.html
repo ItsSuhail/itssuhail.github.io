@@ -47,6 +47,9 @@
                 <button class="tab-btn" data-category="defects">
                     <i data-lucide="shield-alert"></i> Defects
                 </button>
+                <button class="tab-btn" data-category="sandbox">
+                    <i data-lucide="wrench"></i> Sandbox
+                </button>
             </nav>
 
             <div class="control-sections">
@@ -144,6 +147,37 @@
                             <span class="btn-title">p-type Doping (B-doped)</span>
                             <span class="btn-desc">B replaces C in Diamond + hole</span>
                         </button>
+                    </div>
+                </section>
+
+                <!-- Sandbox Section -->
+                <section class="control-group" id="section-sandbox">
+                    <h3>1. Select Crystal System</h3>
+                    <div class="sandbox-grid" id="sandbox-system-buttons">
+                        <button class="sandbox-btn active" data-system="cubic">Cubic</button>
+                        <button class="sandbox-btn" data-system="tetragonal">Tetragonal</button>
+                        <button class="sandbox-btn" data-system="orthorhombic">Orthorhombic</button>
+                        <button class="sandbox-btn" data-system="hexagonal">Hexagonal</button>
+                        <button class="sandbox-btn" data-system="rhombohedral">Rhombohedral</button>
+                        <button class="sandbox-btn" data-system="monoclinic">Monoclinic</button>
+                        <button class="sandbox-btn" data-system="triclinic" style="grid-column: span 2;">Triclinic</button>
+                    </div>
+
+                    <h3 class="margin-top-15">2. Select Centering</h3>
+                    <div class="sandbox-grid" id="sandbox-centering-buttons">
+                        <button class="sandbox-btn active" data-centering="primitive">Primitive (P)</button>
+                        <button class="sandbox-btn" data-centering="body">Body-Centered (I)</button>
+                        <button class="sandbox-btn" data-centering="face">Face-Centered (F)</button>
+                        <button class="sandbox-btn" data-centering="end">End-Centered (C)</button>
+                    </div>
+
+                    <h3 class="margin-top-15">3. Sandbox Options</h3>
+                    <div class="checkbox-options" style="margin-top: 10px;">
+                        <label class="checkbox-container" id="sandbox-neighbors-toggle-container">
+                            <input type="checkbox" id="sandbox-toggle-neighbors">
+                            <span class="checkmark"></span>
+                            Show Neighbor Cells (Stable)
+                        </label>
                     </div>
                 </section>
 
@@ -259,7 +293,7 @@
             </div>
 
             <!-- Density Calculator -->
-            <div class="density-calculator">
+            <div class="density-calculator" id="density-calculator-card">
                 <h4>NCERT Numerical Helper: Density Calculator</h4>
                 <p class="calc-formula">\(d = \frac{Z \times M}{N_A \times a^3}\)</p>
                 
@@ -284,6 +318,17 @@
                 </div>
             </div>
 
+            <!-- Sandbox Analysis Card -->
+            <div id="sandbox-analysis-card" style="display: none; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.15); border-radius: 14px; padding: 16px; margin-bottom: 20px;">
+                <h4 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #a5b4fc; margin-bottom: 8px; font-weight: 600;">Symmetry & Reduction Analysis</h4>
+                <div id="sandbox-reducibility-status" style="margin-bottom: 10px; font-size: 13.5px; font-weight: 700; color: #f43f5e;">
+                    Status: Custom Lattice
+                </div>
+                <p id="sandbox-reducibility-text" style="font-size: 12px; line-height: 1.6; color: var(--text-main);">
+                    Place atoms or adjust sliders to see if this centering pattern collapses.
+                </p>
+            </div>
+
             <!-- NCERT Notes Briefing -->
             <div class="revision-notes">
                 <h4>Revision Notes</h4>
@@ -306,6 +351,24 @@
         <!-- 3D Navigation Controls Tips -->
         <div class="interaction-tip">
             <i data-lucide="move"></i> Drag to rotate | Scroll to zoom | Right-click drag to pan
+        </div>
+
+        <!-- Floating Rotate Toggle Button -->
+        <button id="floating-rotate-btn" class="glass floating-btn" title="Toggle Auto-Rotation">
+            <i data-lucide="pause" id="rotate-btn-icon"></i>
+        </button>
+    </div>
+
+    <!-- Atom Color Picker Overlay -->
+    <div id="atom-color-picker" class="glass color-picker-overlay" style="display: none;">
+        <div class="color-picker-title">Select Color</div>
+        <div class="color-dots-grid">
+            <span class="color-dot-option" data-color="#ef4444" style="background: #ef4444;" title="Red"></span>
+            <span class="color-dot-option" data-color="#4ade80" style="background: #4ade80;" title="Light Green"></span>
+            <span class="color-dot-option" data-color="#facc15" style="background: #facc15;" title="Yellow"></span>
+            <span class="color-dot-option" data-color="#d946ef" style="background: #d946ef;" title="Magenta"></span>
+            <span class="color-dot-option" data-color="#06b6d4" style="background: #06b6d4;" title="Cyan"></span>
+            <span class="color-dot-option" data-color="#f97316" style="background: #f97316;" title="Orange"></span>
         </div>
     </div>
 

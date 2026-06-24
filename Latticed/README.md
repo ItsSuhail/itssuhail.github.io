@@ -12,22 +12,31 @@ An interactive, high-performance 3D web visualizer designed for Class 12 NCERT, 
 *   **Unit Cells**: Interactive 3D models of **Simple Cubic (SC)**, **Body-Centered Cubic (BCC)**, **Face-Centered Cubic (FCC)**, and **Hexagonal Close Packed (HCP)** structures.
 *   **Visual Modes**: Toggle between **Ball-and-Stick** (structural clarity) and **Space-Filling** (realistic packing density and touching spheres) views.
 *   **Lattice Clipping**: Toggle unit cell fraction clipping to view the exact contribution of each atom within the cell boundaries (e.g., $1/8$ at corners, $1/2$ at faces).
-*   **Interactive Voids**: Highlight **Tetrahedral** and **Octahedral** voids dynamically inside FCC unit cells, showing their relative sizes and coordinate positions.
+*   **Complete Boundary Voids**: Highlight **Cubic**, **Tetrahedral**, and **Octahedral** voids dynamically across all structures. For boundary voids that cross cell margins, the visualizer automatically renders adjacent-cell **ghost atoms** and dashed coordination lines to complete the coordination polyhedron.
 
-### 2. The 7 Crystal Systems & Bravais Lattices
-Explore all 14 Bravais lattices by combining different crystal systems with variations:
-*   **Systems**: Cubic, Tetragonal, Orthorhombic, Hexagonal, Rhombohedral, Monoclinic, and Triclinic.
-*   **Variations**: Primitive (P), Body-Centered (I), Face-Centered (F), and End-Centered (C) where crystallographically allowed.
-*   **Dynamic Angles & Axes**: Watch the unit cell boundaries skew and stretch in real-time as you switch systems.
+### 2. Bravais Lattice Collapse Sandbox
+An educational playground to visualize why only **14 Bravais Lattices** exist out of the 28 mathematically possible combinations of the 7 crystal systems and 4 centering types:
+*   **🟢 Stable Bravais Badge**: Shows standard lattices with a toggle option, **Show Neighbor Cells (Stable)**, to render 6 adjacent neighbor cells.
+*   **🔴 Geometry Collapses Badge**: Identifies redundant or symmetry-breaking configurations. Centering atoms that cause the collapse are colored in **opaque red**, 6 adjacent cells are rendered as semi-transparent ghost cells, and a glowing **neon-cyan cylinder cage** outlines the new, simpler collapsed unit cell (e.g., outline of a Tetragonal Primitive cell inside End-Centered Cubic).
 
-### 3. Ionic & Covalent Compounds (NCERT Examples)
+### 3. Interactive Atom Color Customizer
+*   **Any Section**: Click any atom (cation, anion, carbon, or ghost atom) in any visualization tab to open a glassmorphic color popover.
+*   **6 Color Options**: Choose between Red, Light Visible Green, Yellow, Magenta, Cyan, and Orange.
+*   **Material Isolation**: Uses individual material cloning to recolor only the clicked atom without affecting other atoms in the lattice.
+
+### 4. Advanced Auto-Rotation Controls
+*   **Click & Drag Interruption**: Auto-rotation automatically pauses when you click or drag the 3D canvas to inspect details, and resumes when released.
+*   **Floating Play/Pause Toggle**: A floating glass play/pause button is positioned at the top right (just left of the info panel) for quick access.
+*   **Spacebar Shortcut**: Press the Spacebar on your keyboard (when not focusing input fields) to toggle auto-rotate instantly.
+
+### 5. Ionic & Covalent Compounds (NCERT Examples)
 *   **Rock Salt ($\text{NaCl}$)**: $\text{Cl}^-$ forming FCC lattice, $\text{Na}^+$ occupying all octahedral voids ($6:6$ coordination).
 *   **Cesium Chloride ($\text{CsCl}$)**: Simple cubic $\text{Cl}^-$ with $\text{Cs}^+$ at the body center ($8:8$ coordination).
 *   **Zinc Blende ($\text{ZnS}$)**: $\text{S}^{2-}$ in FCC, $\text{Zn}^{2+}$ in alternate tetrahedral voids ($4:4$ coordination).
 *   **Fluorite ($\text{CaF}_2$)**: $\text{Ca}^{2+}$ in FCC, $\text{F}^-$ in all tetrahedral voids ($8:4$ coordination).
 *   **Diamond**: Carbon network forming FCC + alternate tetrahedral voids ($4$ coordination).
 
-### 4. Interactive defects & Doping
+### 6. Interactive Defects & Doping
 *   **Schottky Defect ($\text{NaCl}$)**: Stoichiometric vacancy defect showing equal numbers of cation and anion vacancies (red wireframes). The cell rank $Z$ drops from $4.0$ to $3.0$ (density drops by $25\%$).
 *   **Frenkel Defect ($\text{AgCl}$)**: Dislocation defect showing a silver cation ($\text{Ag}^+$) dislocated from its octahedral center to an interstitial tetrahedral void. Cation rank and density remain unchanged.
 *   **n-type Semiconductor**: Diamond covalent lattice doped with Phosphorus (Group 15), featuring a delocalized conduction electron in an animated orbit.
