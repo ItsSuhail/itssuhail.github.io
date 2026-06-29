@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Electroid — Electric Charges Simulator</title>
+    <!-- Modern font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/Electroid/assets/index-mj8Pmdw_.js"></script>
+    <link rel="stylesheet" crossorigin href="/Electroid/assets/index-C_HjVhoD.css">
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="logo-container">
+          <div class="logo-icon">⚡</div>
+          <div>
+            <h1>Electroid</h1>
+            <p class="subtitle">Electric Charges &amp; Fields Simulator</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="help-btn" class="icon-btn" title="View Guide">❓</button>
+        </div>
+      </header>
+
+      <main class="app-body">
+        <!-- Main Canvas Workspace -->
+        <div class="canvas-container">
+          <canvas id="simulation-canvas"></canvas>
+          
+          <!-- Floating Info Cards -->
+          <div class="canvas-overlay bottom-bar">
+            <div class="sim-controls">
+              <button id="play-pause-btn" class="btn btn-primary" title="Play/Pause (Spacebar)">
+                <span class="btn-icon">▶</span> Play
+              </button>
+              <button id="step-btn" class="btn btn-secondary" title="Simulate Single Frame (S)">
+                <span class="btn-icon">⏭</span> Step
+              </button>
+              <button id="soft-reset-btn" class="btn btn-secondary" title="Reset particle positions &amp; velocities, keep your physical constants (R)">
+                <span class="btn-icon">↺</span> Reset Sim
+              </button>
+              <button id="full-reset-btn" class="btn btn-secondary" title="Reset everything including physical constants to preset defaults">
+                <span class="btn-icon">⟳</span> Full Reset
+              </button>
+              <button id="clear-trails-btn" class="btn btn-secondary" title="Clear all drawn trails (C)">
+                Clear Trails
+              </button>
+              
+              <div class="divider"></div>
+              
+              <div class="slider-control speed-control">
+                <span class="label">Speed:</span>
+                <input type="range" id="sim-speed" min="0.1" max="3" step="0.1" value="1.0" />
+                <span id="sim-speed-val" class="val">1.0x</span>
+              </div>
+            </div>
+            
+            <div class="canvas-instructions">
+              Scroll to zoom &nbsp;·&nbsp; Right-click drag / Middle-click / Space+drag to pan &nbsp;·&nbsp; Left-click charges to select &amp; drag
+            </div>
+          </div>
+
+          <div class="canvas-overlay top-left-info">
+            <div class="camera-info">
+              <span>Zoom: <strong id="zoom-level">100%</strong></span>
+              <button id="reset-cam-btn" class="btn-text">Reset Cam</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Configurator -->
+        <aside class="sidebar">
+          
+          <!-- Section 1: Presets -->
+          <section class="sidebar-section">
+            <h2 class="section-title">Presets</h2>
+            <div class="preset-group">
+              <select id="preset-select" class="form-select">
+                <!-- Loaded dynamically -->
+              </select>
+              <p id="preset-desc" class="preset-description">Select a simulation scenario to load.</p>
+            </div>
+          </section>
+
+          <!-- Section 2: Particles Configuration -->
+          <section class="sidebar-section">
+            <div class="section-header">
+              <h2 class="section-title">Charges</h2>
+              <button id="add-particle-btn" class="btn btn-sm btn-success">+ Add Charge</button>
+            </div>
+            
+            <div class="particle-limit-alert" id="particle-limit-notice">
+              ⚠️ Frontend limit: Maximum 3 charges active.
+              <span id="toggle-dev-limit" class="dev-toggle-link">Toggle Developer Mode</span>
+            </div>
+
+            <div class="particles-list" id="particles-list-container">
+              <!-- Loaded dynamically -->
+            </div>
+          </section>
+
+          <!-- Section 3: Inspector (Active Particle Details) -->
+          <section class="sidebar-section inspector-panel" id="inspector-panel" style="display: none;">
+            <h2 class="section-title text-accent">Inspector: <span id="inspector-title">P1</span></h2>
+            
+            <div class="inspector-grid">
+              <div class="form-group">
+                <label for="inspect-label">Label</label>
+                <input type="text" id="inspect-label" class="form-input" maxlength="4" />
+              </div>
+              <div class="form-group">
+                <label for="inspect-charge">Charge (C)</label>
+                <input type="number" id="inspect-charge" class="form-input" step="0.5" />
+              </div>
+              <div class="form-group">
+                <label for="inspect-mass">Mass (kg)</label>
+                <input type="number" id="inspect-mass" class="form-input" min="0.1" step="0.1" />
+              </div>
+              <div class="form-group flex-row">
+                <label for="inspect-held">Hold Particle</label>
+                <input type="checkbox" id="inspect-held" class="form-checkbox" />
+              </div>
+            </div>
+
+            <div class="inspector-vector-grid">
+              <div class="vector-title">Initial Position (m)</div>
+              <div class="form-group-inline">
+                <label>X:</label>
+                <input type="number" id="inspect-pos-x" class="form-input" step="0.1" />
+              </div>
+              <div class="form-group-inline">
+                <label>Y:</label>
+                <input type="number" id="inspect-pos-y" class="form-input" step="0.1" />
+              </div>
+            </div>
+
+            <div class="inspector-vector-grid">
+              <div class="vector-title">Initial Velocity (m/s)</div>
+              <div class="form-group-inline">
+                <label>Vx:</label>
+                <input type="number" id="inspect-vel-x" class="form-input" step="0.5" />
+              </div>
+              <div class="form-group-inline">
+                <label>Vy:</label>
+                <input type="number" id="inspect-vel-y" class="form-input" step="0.5" />
+              </div>
+            </div>
+
+            <div class="inspector-actions">
+              <button id="inspect-delete-btn" class="btn btn-sm btn-danger">Delete Charge</button>
+              <button id="inspect-apply-btn" class="btn btn-sm btn-primary">Apply Changes</button>
+            </div>
+          </section>
+
+          <!-- Section 4: Physics Settings -->
+          <section class="sidebar-section" id="constants-section">
+            <div class="section-header">
+              <h2 class="section-title">Physical Constants</h2>
+              <span id="constants-lock-badge"
+                style="display:none; font-size:10px; color:var(--warning); background:rgba(245,158,11,.12);
+                       border:1px solid rgba(245,158,11,.3); border-radius:4px; padding:1px 7px; letter-spacing:.3px;">
+                🔒 Pause to edit
+              </span>
+            </div>
+            
+            <div class="settings-grid" id="constants-inputs-wrapper">
+              <div class="form-group-inline-input">
+                <label for="const-ke">Coulomb Constant (k_e)</label>
+                <input type="number" id="const-ke" class="form-input" value="100" step="10" />
+              </div>
+
+              <div class="checkbox-control">
+                <input type="checkbox" id="toggle-gravity" />
+                <label for="toggle-gravity">Enable Mass Gravity</label>
+              </div>
+
+              <div class="form-group-inline-input" id="gravity-input-wrapper" style="display: none;">
+                <label for="const-g">Gravity Constant (G)</label>
+                <input type="number" id="const-g" class="form-input" value="10" step="1" />
+              </div>
+
+              <div class="form-group-inline-input">
+                <label for="setting-boundary">Boundary Box Size (m)</label>
+                <input type="number" id="setting-boundary" class="form-input" value="20" step="5" />
+              </div>
+            </div>
+          </section>
+
+          <!-- Section 4.5: External Fields -->
+          <section class="sidebar-section">
+            <h2 class="section-title">External Fields</h2>
+            <div class="settings-grid">
+              <div class="form-group-inline-input">
+                <label for="field-e-mag" style="color: #f97316;">Electric Field |E| (N/C)</label>
+                <input type="number" id="field-e-mag" class="form-input" value="0" step="0.5" />
+              </div>
+              <div class="form-group-inline-input">
+                <label for="field-e-theta" style="color: #f97316;">E direction θ in xy (°)</label>
+                <input type="number" id="field-e-theta" class="form-input" value="0" step="5" />
+              </div>
+              <div class="form-group-inline-input">
+                <label for="field-b-mag" style="color: #eab308;">Magnetic Field B<sub>z</sub> (T)</label>
+                <input type="number" id="field-b-mag" class="form-input" value="0" step="0.1" />
+              </div>
+            </div>
+          </section>
+
+          <!-- Section 5: View Options -->
+          <section class="sidebar-section">
+            <h2 class="section-title">Display Options</h2>
+            <div class="options-grid">
+              <div class="checkbox-control">
+                <input type="checkbox" id="display-grid" checked />
+                <label for="display-grid">Show Grid &amp; Axes</label>
+              </div>
+              <div class="checkbox-control">
+                <input type="checkbox" id="display-trails" checked />
+                <label for="display-trails">Show Motion Trails</label>
+              </div>
+              <div class="checkbox-control" id="permanent-trails-row">
+                <input type="checkbox" id="permanent-trails" />
+                <label for="permanent-trails">Permanent Trails <span style="color:var(--warning);font-size:10px;">(accumulate forever)</span></label>
+              </div>
+              <div class="checkbox-control">
+                <input type="checkbox" id="display-vectors" checked />
+                <label for="display-vectors">Show Velocity/Force Vectors</label>
+              </div>
+            </div>
+          </section>
+
+          <!-- Section 6: Diagnostics -->
+          <section class="sidebar-section">
+            <h2 class="section-title">Diagnostics</h2>
+            <div class="diagnostics-panel">
+              <div class="diag-row">
+                <span>Status:</span>
+                <span id="diag-status" class="status-indicator active">Running</span>
+              </div>
+              <div class="diag-row">
+                <span>Total Kin. Energy (K):</span>
+                <span id="diag-ke" class="value-monospace">0.00 J</span>
+              </div>
+              <div class="diag-row">
+                <span>Total Pot. Energy (U):</span>
+                <span id="diag-pe" class="value-monospace">0.00 J</span>
+              </div>
+              <div class="diag-row">
+                <span>Total Energy (E):</span>
+                <span id="diag-te" class="value-monospace">0.00 J</span>
+              </div>
+            </div>
+          </section>
+
+        </aside>
+      </main>
+
+      <!-- Welcome / Guide Modal -->
+      <div id="guide-modal" class="modal">
+        <div class="modal-content">
+          <span class="close-btn">&times;</span>
+          <h2>Welcome to Electroid! ⚡</h2>
+          <p>Electroid simulates the motion of electric charges in a 2D space under electrostatic forces (and optionally gravity).</p>
+          
+          <h3>Core Features:</h3>
+          <ul>
+            <li><strong>Infinite Canvas:</strong> <em>Right-click drag</em>, <em>Middle-click drag</em>, or <em>Space + Left-click drag</em> to pan. <em>Scroll wheel</em> to zoom centered on cursor.</li>
+            <li><strong>Interactive Manipulation:</strong> Pause the simulation and drag charges around directly on the canvas to set their starting positions.</li>
+            <li><strong>Detailed Inspector:</strong> Click on any charge to select it. You can modify its label, charge, mass, initial velocity, or toggle whether it is <strong>held</strong> (anchored in place).</li>
+            <li><strong>Boundary Box (Red dashed line):</strong> If a particle leaves this box, it won't be rendered. However, it still exerts force on other charges. If all charges leave the boundary box, the simulation terminates.</li>
+          </ul>
+
+          <h3>Vector Indicators:</h3>
+          <ul>
+            <li><span style="color: #10b981; font-weight: bold;">Green Vector:</span> Velocity &nbsp;<span class="vector-symbol">v</span></li>
+            <li><span style="color: #f59e0b; font-weight: bold;">Orange Vector:</span> Net Force &nbsp;<span class="vector-symbol">F</span></li>
+          </ul>
+          
+          <button id="close-guide-btn" class="btn btn-primary" style="margin-top: 15px; width: 100%;">Get Started</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
