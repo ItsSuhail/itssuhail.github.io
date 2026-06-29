@@ -1573,15 +1573,41 @@ function drawBCCVoids(atomRadius) {
     // 2. Tetrahedral Voids (Render on faces z=0 and z=1)
     if (state.voids === 'tetrahedral' || state.voids === 'both') {
         const tetVoids = [
+            // Face z=0 (Bottom)
             { pos: new THREE.Vector3(0.5, 0.25, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0)] },
             { pos: new THREE.Vector3(0.5, 0.75, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(1,1,0)] },
             { pos: new THREE.Vector3(0.25, 0.5, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)] },
             { pos: new THREE.Vector3(0.75, 0.5, 0), ghostDir: new THREE.Vector3(0,0,-1), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,1,0)] },
             
+            // Face z=1 (Top)
             { pos: new THREE.Vector3(0.5, 0.25, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(1,0,1)] },
             { pos: new THREE.Vector3(0.5, 0.75, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)] },
             { pos: new THREE.Vector3(0.25, 0.5, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(0,1,1)] },
-            { pos: new THREE.Vector3(0.75, 0.5, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(1,0,1), new THREE.Vector3(1,1,1)] }
+            { pos: new THREE.Vector3(0.75, 0.5, 1), ghostDir: new THREE.Vector3(0,0,1), corners: [new THREE.Vector3(1,0,1), new THREE.Vector3(1,1,1)] },
+
+            // Face x=0 (Left)
+            { pos: new THREE.Vector3(0, 0.5, 0.25), ghostDir: new THREE.Vector3(-1,0,0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)] },
+            { pos: new THREE.Vector3(0, 0.5, 0.75), ghostDir: new THREE.Vector3(-1,0,0), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(0,1,1)] },
+            { pos: new THREE.Vector3(0, 0.25, 0.5), ghostDir: new THREE.Vector3(-1,0,0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,1)] },
+            { pos: new THREE.Vector3(0, 0.75, 0.5), ghostDir: new THREE.Vector3(-1,0,0), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(0,1,1)] },
+
+            // Face x=1 (Right)
+            { pos: new THREE.Vector3(1, 0.5, 0.25), ghostDir: new THREE.Vector3(1,0,0), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,1,0)] },
+            { pos: new THREE.Vector3(1, 0.5, 0.75), ghostDir: new THREE.Vector3(1,0,0), corners: [new THREE.Vector3(1,0,1), new THREE.Vector3(1,1,1)] },
+            { pos: new THREE.Vector3(1, 0.25, 0.5), ghostDir: new THREE.Vector3(1,0,0), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,0,1)] },
+            { pos: new THREE.Vector3(1, 0.75, 0.5), ghostDir: new THREE.Vector3(1,0,0), corners: [new THREE.Vector3(1,1,0), new THREE.Vector3(1,1,1)] },
+
+            // Face y=0 (Front)
+            { pos: new THREE.Vector3(0.5, 0, 0.25), ghostDir: new THREE.Vector3(0,-1,0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0)] },
+            { pos: new THREE.Vector3(0.5, 0, 0.75), ghostDir: new THREE.Vector3(0,-1,0), corners: [new THREE.Vector3(0,0,1), new THREE.Vector3(1,0,1)] },
+            { pos: new THREE.Vector3(0.25, 0, 0.5), ghostDir: new THREE.Vector3(0,-1,0), corners: [new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,1)] },
+            { pos: new THREE.Vector3(0.75, 0, 0.5), ghostDir: new THREE.Vector3(0,-1,0), corners: [new THREE.Vector3(1,0,0), new THREE.Vector3(1,0,1)] },
+
+            // Face y=1 (Back)
+            { pos: new THREE.Vector3(0.5, 1, 0.25), ghostDir: new THREE.Vector3(0,1,0), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(1,1,0)] },
+            { pos: new THREE.Vector3(0.5, 1, 0.75), ghostDir: new THREE.Vector3(0,1,0), corners: [new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)] },
+            { pos: new THREE.Vector3(0.25, 1, 0.5), ghostDir: new THREE.Vector3(0,1,0), corners: [new THREE.Vector3(0,1,0), new THREE.Vector3(0,1,1)] },
+            { pos: new THREE.Vector3(0.75, 1, 0.5), ghostDir: new THREE.Vector3(0,1,0), corners: [new THREE.Vector3(1,1,0), new THREE.Vector3(1,1,1)] }
         ];
         
         tetVoids.forEach(tv => {
