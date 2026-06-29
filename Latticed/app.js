@@ -1753,26 +1753,93 @@ function drawHCPVoids(atomRadius) {
             drawCoordinationLines(tv.pos, tv.atoms);
         });
         
-        // T2 Voids: Pointing sideways, completed by adjacent B-layer ghost atoms
-        const t2Voids = [
-            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), cHalf * 0.75), ghost: midGhosts[0], atoms: [topCenter, topRing[1], topRing[2]] },
-            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf * 0.75), ghost: midGhosts[1], atoms: [topCenter, topRing[3], topRing[4]] },
-            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), cHalf * 0.75), ghost: midGhosts[2], atoms: [topCenter, topRing[5], topRing[0]] },
-            
-            { pos: new THREE.Vector3(0, aParam / Math.sqrt(3), -cHalf * 0.75), ghost: midGhosts[0], atoms: [bottomCenter, bottomRing[1], bottomRing[2]] },
-            { pos: new THREE.Vector3(-aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf * 0.75), ghost: midGhosts[1], atoms: [bottomCenter, bottomRing[3], bottomRing[4]] },
-            { pos: new THREE.Vector3(aParam / 2, -aParam / (2 * Math.sqrt(3)), -cHalf * 0.75), ghost: midGhosts[2], atoms: [bottomCenter, bottomRing[5], bottomRing[0]] }
+        // Generate a grid of B-layer atoms (including ghosts) to find coordinating B-atoms for corner/center positions
+        const allBAtoms = [];
+        const t1Shift = new THREE.Vector3(aParam, 0, 0);
+        const t2Shift = new THREE.Vector3(aParam * 0.5, aParam * Math.sqrt(3) * 0.5, 0);
+        
+        midAtoms.forEach(base => {
+            for (let u = -2; u <= 2; u++) {
+                for (let v = -2; v <= 2; v++) {
+                    const shift = new THREE.Vector3()
+                        .addScaledVector(t1Shift, u)
+                        .addScaledVector(t2Shift, v);
+                    const pos = base.clone().add(shift);
+                    let dup = false;
+                    for (let k = 0; k < allBAtoms.length; k++) {
+                        if (allBAtoms[k].distanceTo(pos) < 0.01) {
+                            dup = true;
+                            break;
+                        }
+                    }
+                    if (!dup) {
+                        allBAtoms.push(pos);
+                    }
+                }
+            }
+        });
+        
+        const get3ClosestBAtoms = (targetPos) => {
+            const sorted = [...allBAtoms].sort((a, b) => {
+                const distA = Math.pow(a.x - targetPos.x, 2) + Math.pow(a.y - targetPos.y, 2);
+                const distB = Math.pow(b.x - targetPos.x, 2) + Math.pow(b.y - targetPos.y, 2);
+                return distA - distB;
+            });
+            return sorted.slice(0, 3);
+        };
+        
+        const isInternalB = (pos) => {
+            return midAtoms.some(m => m.distanceTo(pos) < 0.01);
+        };
+
+        // 1. Z-axis Voids: 2 voids total (+2 voids made using layer B atoms with center of layer A and A`)
+        const zVoids = [
+            { pos: new THREE.Vector3(0, 0, -cHalf * 0.25), vertex: bottomCenter, base: midAtoms },
+            { pos: new THREE.Vector3(0, 0, cHalf * 0.25), vertex: topCenter, base: midAtoms }
         ];
         
-        t2Voids.forEach(tv => {
+        zVoids.forEach(zv => {
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
-            mesh.position.copy(tv.pos);
+            mesh.position.copy(zv.pos);
             voidsGroup.add(mesh);
             
-            addGhostAtom(tv.ghost, atomRadius);
+            const coordinating = [zv.vertex, ...zv.base];
+            drawCoordinationLines(zv.pos, coordinating);
+        });
+        
+        // 2. Corner Voids: 12 voids total (+4 net voids shared by 3 cells below top/above bottom vertices)
+        const cornerVoids = [];
+        
+        // Bottom corner voids
+        for (let i = 0; i < 6; i++) {
+            const corner = bottomRing[i];
+            const pos = new THREE.Vector3(corner.x, corner.y, -cHalf * 0.25);
+            const closeB = get3ClosestBAtoms(corner);
+            cornerVoids.push({ pos, vertex: corner, base: closeB });
+        }
+        
+        // Top corner voids
+        for (let i = 0; i < 6; i++) {
+            const corner = topRing[i];
+            const pos = new THREE.Vector3(corner.x, corner.y, cHalf * 0.25);
+            const closeB = get3ClosestBAtoms(corner);
+            cornerVoids.push({ pos, vertex: corner, base: closeB });
+        }
+        
+        cornerVoids.forEach(cv => {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(rTet, 16, 16), materials.voidTetrahedral);
+            mesh.position.copy(cv.pos);
+            voidsGroup.add(mesh);
             
-            const coordinating = [tv.ghost, ...tv.atoms];
-            drawCoordinationLines(tv.pos, coordinating);
+            // Add ghost B-atoms for any coordinating B-atoms that are not internal
+            cv.base.forEach(b => {
+                if (!isInternalB(b)) {
+                    addGhostAtom(b, atomRadius);
+                }
+            });
+            
+            const coordinating = [cv.vertex, ...cv.base];
+            drawCoordinationLines(cv.pos, coordinating);
         });
     }
 }
