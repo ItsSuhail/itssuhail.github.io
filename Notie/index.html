@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notie - Online Whiteboard & Notebook</title>
+  
+  <!-- CSS styling sheet -->
+  
+  <!-- Load jsPDF and JSZip via CDN for zero-loss vector PDF generation & ZIP exports -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" crossorigin src="/Notie/assets/index-Bsf4_vOX.js"></script>
+  <link rel="stylesheet" crossorigin href="/Notie/assets/index-DVhJVpZ5.css">
+</head>
+<body>
+  <div id="app">
+    
+    <!-- Top Header & Tabs Bar -->
+    <header>
+      <div class="brand">
+        <h1>Notie</h1>
+        <div class="notebook-title-container">
+          <input type="text" id="notebook-title-input" class="notebook-title" value="My Whiteboard" title="Click to rename Notebook">
+        </div>
+      </div>
+      
+      <!-- Page tabs navigation -->
+      <div class="tabs-bar" id="page-tabs-container">
+        <!-- Tabs will be rendered here dynamically -->
+      </div>
+      
+      <!-- File Exporters -->
+      <div class="header-actions">
+        <!-- Import Button -->
+        <button class="btn-primary" id="import-btn" title="Import Notie Layout file">
+          📥 Import (.notie)
+        </button>
+        <input type="file" id="file-input" accept=".notie">
+        
+        <!-- Export Dropdown -->
+        <div class="dropdown-container">
+          <button class="btn-primary" id="export-dropdown-trigger" title="Export Current Page or Notebook">
+            📤 Export ▾
+          </button>
+          <div class="dropdown-menu" id="export-dropdown-menu">
+            <button class="dropdown-item" id="export-page-pdf">📄 Page as PDF</button>
+            <button class="dropdown-item" id="export-page-notie">⚙️ Page as Notie Layout</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="export-notebook-zip">📦 Notebook (ZIP)</button>
+          </div>
+        </div>
+
+        <!-- Help Guide -->
+        <button class="btn-primary" id="help-btn" title="Keyboard Shortcuts Guide" style="padding: 6px 10px;">
+          ❓
+        </button>
+      </div>
+    </header>
+    
+    <!-- Main Workspace Area -->
+    <div class="workspace-container">
+      
+      <!-- Floating Toolbar (Left) -->
+      <div class="floating-toolbar">
+        <button class="tool-btn active" id="tool-pen" data-tool="pen">
+          ✏️
+          <span class="tooltip">Pen (P)</span>
+        </button>
+        <button class="tool-btn" id="tool-eraser" data-tool="eraser">
+          🧽
+          <span class="tooltip">Eraser (E)</span>
+        </button>
+        <button class="tool-btn" id="tool-select" data-tool="select">
+          🫵
+          <span class="tooltip">Select / Edit</span>
+        </button>
+        <button class="tool-btn" id="tool-pan" data-tool="pan">
+          ✋
+          <span class="tooltip">Pan Canvas (H)</span>
+        </button>
+
+        <div class="tool-divider"></div>
+
+        <!-- Shapes Trigger -->
+        <button class="tool-btn" id="tool-shapes-trigger" title="Select Shapes (S)">
+          📐
+          <span class="tooltip">Shapes Menu (S)</span>
+        </button>
+
+        <!-- Shapes Popout Submenu -->
+        <div class="shapes-submenu" id="shapes-popout">
+          <div class="shape-more-header">Basic Shapes</div>
+          <button class="shape-option" data-shape="line" title="Line">➖</button>
+          <button class="shape-option" data-shape="rectangle" title="Rectangle">⬛</button>
+          <button class="shape-option" data-shape="square" title="Square">⬜</button>
+          <button class="shape-option" data-shape="circle" title="Circle">🔴</button>
+          <button class="shape-option" data-shape="ellipse" title="Ellipse">🥚</button>
+          <button class="shape-option" data-shape="triangle" title="Triangle">🔺</button>
+          
+          <div class="shape-more-header">Special Shapes</div>
+          <button class="shape-option" data-shape="ray" title="Ray">➔</button>
+          <button class="shape-option" data-shape="perp_rays" title="Perpendicular Rays">⦜</button>
+          <button class="shape-option" data-shape="perp_lines" title="Perpendicular Intersection lines">┼</button>
+          
+          <div class="shape-more-header">More Polygons</div>
+          <button class="shape-option" data-shape="polygon" title="Regular N-Polygon">⬡</button>
+          
+          <div class="polygon-sides-controller">
+            <div class="polygon-sides-label">
+              <span>Sides:</span>
+              <span id="sides-val">5</span>
+            </div>
+            <input type="range" class="polygon-sides-slider" id="sides-slider" min="3" max="16" value="5">
+          </div>
+        </div>
+
+        <button class="tool-btn" id="tool-text" data-tool="text">
+          🔤
+          <span class="tooltip">Text Tool</span>
+        </button>
+      </div>
+      
+      <!-- Interactive Blackboard Canvas -->
+      <div class="canvas-wrapper" id="canvas-container">
+        <canvas id="whiteboard-canvas"></canvas>
+        <!-- Horizontal Scrollbar overlay -->
+        <div id="horizontal-scrollbar" class="custom-scrollbar-h">
+          <div id="horizontal-scrollbar-thumb" class="custom-scrollbar-thumb-h"></div>
+        </div>
+      </div>
+      
+      <!-- Floating Inspector Properties Panel (Right) -->
+      <div class="floating-inspector">
+        
+        <!-- Selection Properties Settings (Dynamic Visibility) -->
+        <div class="inspector-section" id="selection-settings-section">
+          <div class="inspector-title">Selection Settings</div>
+          <div class="properties-grid">
+            
+            <!-- Stroke Color Presets -->
+            <div class="property-group">
+              <span class="property-label">Color Palette</span>
+              <div class="color-palette" id="stroke-color-palette">
+                <!-- Colors suited for default black background -->
+                <button class="color-btn active" data-color="#ffffff" style="background-color: #ffffff;"></button>
+                <button class="color-btn" data-color="#00f2fe" style="background-color: #00f2fe;"></button>
+                <button class="color-btn" data-color="#00f5a0" style="background-color: #00f5a0;"></button>
+                <button class="color-btn" data-color="#ffd200" style="background-color: #ffd200;"></button>
+                <button class="color-btn" data-color="#ff007f" style="background-color: #ff007f;"></button>
+                <button class="color-btn" data-color="#ff5e62" style="background-color: #ff5e62;"></button>
+                <button class="color-btn" data-color="#b19ffb" style="background-color: #b19ffb;"></button>
+                
+                <!-- Color Wheel Trigger -->
+                <div class="color-wheel-btn" id="custom-color-wheel" title="Custom Color Wheel">
+                  <input type="color" id="stroke-color-custom" value="#00f2fe">
+                </div>
+              </div>
+            </div>
+
+             <!-- Text Content Editing (Text Only) -->
+            <div class="property-group" id="text-content-group" style="display: none;">
+              <span class="property-label">Text Content</span>
+              <textarea class="text-input-styled" id="text-content-input" rows="2" style="font-family: inherit; font-size: 12px; resize: vertical; margin-top: 4px;"></textarea>
+            </div>
+
+            <!-- Text Font Size (Text Only) -->
+            <div class="property-group" id="text-size-group" style="display: none;">
+              <div class="slider-container">
+                <span class="property-label">Font Size</span>
+                <span class="slider-val" id="text-size-val">24px</span>
+              </div>
+              <input type="range" class="slider-input" id="text-size-slider" min="12" max="100" value="24">
+            </div>
+
+            <!-- Shape Fills -->
+            <div class="property-group" id="fill-type-property-group">
+              <span class="property-label">Fill Type</span>
+              <div class="toggle-group" id="fill-type-group">
+                <button class="toggle-btn active" data-fill="transparent">None</button>
+                <button class="toggle-btn" data-fill="solid">Solid</button>
+                <button class="toggle-btn" data-fill="semi">Semi</button>
+              </div>
+            </div>
+
+            <!-- Stroke Width Slider -->
+            <div class="property-group" id="stroke-width-property-group">
+              <div class="slider-container">
+                <span class="property-label">Line Width</span>
+                <span class="slider-val" id="stroke-width-val">3px</span>
+              </div>
+              <input type="range" class="slider-input" id="stroke-width-slider" min="1" max="20" value="3">
+            </div>
+
+            <!-- Stroke Line Dashes -->
+            <div class="property-group" id="line-style-property-group">
+              <span class="property-label">Line Style</span>
+              <div class="style-btn-group" id="line-style-group">
+                <button class="style-btn active" data-style="solid">━━━</button>
+                <button class="style-btn" data-style="dashed">╌ ╌ ╌</button>
+                <button class="style-btn" data-style="dotted">▪ ▪ ▪</button>
+              </div>
+            </div>
+
+            <!-- Opacity Slider -->
+            <div class="property-group">
+              <div class="slider-container">
+                <span class="property-label">Opacity</span>
+                <span class="slider-val" id="opacity-val">100%</span>
+              </div>
+              <input type="range" class="slider-input" id="opacity-slider" min="10" max="100" value="100" step="5">
+            </div>
+
+            <!-- Eraser Ball Size Controller (only visible when eraser is chosen) -->
+            <div class="property-group" id="eraser-size-group" style="display: none;">
+              <div class="slider-container">
+                <span class="property-label">Eraser Size</span>
+                <span class="slider-val" id="eraser-size-val">30px</span>
+              </div>
+              <input type="range" class="slider-input" id="eraser-size-slider" min="10" max="100" value="30">
+            </div>
+
+            <!-- Locking shape -->
+            <div class="property-group">
+              <span class="property-label">Lock Status</span>
+              <div class="actions-row">
+                <button class="action-btn" id="lock-toggle-btn" title="Lock/Unlock Shape">🔒 Lock</button>
+              </div>
+            </div>
+
+            <!-- Edit Operations -->
+            <div class="property-group">
+              <span class="property-label">Edit Operations</span>
+              <div class="actions-row">
+                <button class="action-btn" id="duplicate-shape-btn">📋 Clone</button>
+                <button class="action-btn" id="delete-shape-btn" style="border-color: rgba(255, 94, 98, 0.3); color: #ff5e62;">🗑️ Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Canvas Background & Grid Settings (Always Visible) -->
+        <div class="inspector-section">
+          <div class="inspector-title">Canvas Settings</div>
+          <div class="properties-grid">
+            
+            <!-- Page Title/Name -->
+            <div class="property-group">
+              <span class="property-label">Page Name</span>
+              <input type="text" class="text-input-styled" id="page-title-input" title="Rename Active Page">
+            </div>
+
+            <!-- Grid selection overlay -->
+            <div class="property-group">
+              <span class="property-label">Grid Style</span>
+              <select class="select-input" id="canvas-grid-select">
+                <option value="square">Square Grid</option>
+                <option value="dot">Dot Grid</option>
+                <option value="lined">Lined Paper</option>
+                <option value="none">Blank Canvas</option>
+              </select>
+            </div>
+
+            <!-- Background Type -->
+            <div class="property-group">
+              <span class="property-label">Background Type</span>
+              <select class="select-input" id="bg-type-select">
+                <option value="solid">Solid Color</option>
+                <option value="gradient">Gradient Colors</option>
+              </select>
+            </div>
+
+            <!-- Background Color (Solid) -->
+            <div id="solid-bg-config" class="property-group">
+              <span class="property-label">Background Color</span>
+              <input type="color" class="select-input" id="bg-color-solid" value="#000000" style="height: 32px; padding: 2px;">
+            </div>
+
+            <!-- Background Colors (Gradient) -->
+            <div id="gradient-bg-config" class="property-group" style="display: none; gap: 8px;">
+              <div style="display: flex; gap: 6px;">
+                <div style="flex: 1;">
+                  <span class="property-label" style="font-size: 9px;">Start Color</span>
+                  <input type="color" class="select-input" id="bg-color-grad-start" value="#000000" style="height: 28px; padding: 2px;">
+                </div>
+                <div style="flex: 1;">
+                  <span class="property-label" style="font-size: 9px;">End Color</span>
+                  <input type="color" class="select-input" id="bg-color-grad-end" value="#121214" style="height: 28px; padding: 2px;">
+                </div>
+              </div>
+              <div>
+                <span class="property-label">Gradient Style</span>
+                <select class="select-input" id="bg-grad-style-select">
+                  <option value="linear-vertical">Linear Vertical</option>
+                  <option value="linear-horizontal">Linear Horizontal</option>
+                  <option value="radial">Radial Circular</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <button class="action-btn" id="clear-canvas-btn" style="border-color: rgba(255, 94, 98, 0.4); color: #ff5e62; padding: 8px;">
+                🧹 Clear Page Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Bottom Status Info Bar -->
+    <div class="bottom-bar">
+      <div class="bottom-section">
+        <span id="status-tool-indicator">Tool: Pen</span>
+        <span id="status-selection-count">Selected: 0</span>
+        <span>Space + Drag to Pan</span>
+      </div>
+      
+      <div class="bottom-section">
+        <span>Infinite Canvas Column (0 - 2400 px)</span>
+        <div class="zoom-controls">
+          <button class="zoom-btn" id="zoom-out-btn" title="Zoom Out (Ctrl+Wheel)">−</button>
+          <span class="zoom-val" id="zoom-value-label" title="Reset Zoom">100%</span>
+          <button class="zoom-btn" id="zoom-in-btn" title="Zoom In (Ctrl+Wheel)">+</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Modal Keyboard Shortcut overlay -->
+    <div class="modal-overlay" id="help-modal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Notie Shortcuts Guide</h3>
+          <button class="modal-close" id="help-modal-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="shortcut-list">
+            <div class="shortcut-row">
+              <span class="shortcut-name">Pen Tool</span>
+              <div class="shortcut-keys"><span class="key-tag">P</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Eraser Tool</span>
+              <div class="shortcut-keys"><span class="key-tag">E</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Pan Canvas Mode</span>
+              <div class="shortcut-keys"><span class="key-tag">H</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Shapes Submenu</span>
+              <div class="shortcut-keys"><span class="key-tag">S</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Hold to Pan Canvas</span>
+              <div class="shortcut-keys"><span class="key-tag">Spacebar</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Zoom Canvas</span>
+              <div class="shortcut-keys"><span class="key-tag">Ctrl</span> + <span class="key-tag">Wheel</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Undo Action</span>
+              <div class="shortcut-keys"><span class="key-tag">Ctrl</span> + <span class="key-tag">Z</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Redo Action</span>
+              <div class="shortcut-keys"><span class="key-tag">Ctrl</span> + <span class="key-tag">Y</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Delete Selection</span>
+              <div class="shortcut-keys"><span class="key-tag">Del</span> / <span class="key-tag">Backspace</span></div>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-name">Duplicate Shape</span>
+              <div class="shortcut-keys"><span class="key-tag">Ctrl</span> + <span class="key-tag">D</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+  
+  <!-- Main Bootstrapper -->
+</body>
+</html>
