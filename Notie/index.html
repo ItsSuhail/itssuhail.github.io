@@ -10,8 +10,8 @@
   <!-- Load jsPDF and JSZip via CDN for zero-loss vector PDF generation & ZIP exports -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" crossorigin src="/Notie/assets/index-DweAJd4-.js"></script>
-  <link rel="stylesheet" crossorigin href="/Notie/assets/index-BaRysxGx.css">
+  <script type="module" crossorigin src="/Notie/assets/index-_R3UR3KR.js"></script>
+  <link rel="stylesheet" crossorigin href="/Notie/assets/index-Dz5gXim9.css">
 </head>
 <body>
   <div id="app">
@@ -169,6 +169,18 @@
       <!-- Interactive Blackboard Canvas -->
       <div class="canvas-wrapper" id="canvas-container">
         <canvas id="whiteboard-canvas"></canvas>
+        
+        <!-- Selection Quick Action Menu (Floating above selected shapes) -->
+        <div id="selection-action-menu" class="selection-action-menu" style="display: none;">
+          <button id="quick-clone-btn" class="quick-action-btn" title="Clone selection (Ctrl+D)">
+            📋 <span>Clone</span>
+          </button>
+          <div class="quick-action-divider"></div>
+          <button id="quick-delete-btn" class="quick-action-btn quick-action-btn-danger" title="Delete selection (Del)">
+            🗑️ <span>Delete</span>
+          </button>
+        </div>
+
         <!-- Horizontal Scrollbar overlay -->
         <div id="horizontal-scrollbar" class="custom-scrollbar-h">
           <div id="horizontal-scrollbar-thumb" class="custom-scrollbar-thumb-h"></div>
@@ -371,7 +383,7 @@
       </div>
       
       <div class="bottom-section">
-        <span>Infinite Canvas Column (0 - 4800 px)</span>
+        <span>Infinite Canvas Column (0 - 9600 px)</span>
         <div class="zoom-controls">
           <button class="zoom-btn" id="zoom-out-btn" title="Zoom Out (Ctrl+Wheel)">−</button>
           <span class="zoom-val" id="zoom-value-label" title="Reset Zoom">100%</span>
