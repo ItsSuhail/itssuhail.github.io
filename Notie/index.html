@@ -10,8 +10,8 @@
   <!-- Load jsPDF and JSZip via CDN for zero-loss vector PDF generation & ZIP exports -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" crossorigin src="/Notie/assets/index-7n_sP-iU.js"></script>
-  <link rel="stylesheet" crossorigin href="/Notie/assets/index-Dz5gXim9.css">
+  <script type="module" crossorigin src="/Notie/assets/index-D8wK00Qd.js"></script>
+  <link rel="stylesheet" crossorigin href="/Notie/assets/index-BQrSXtAu.css">
 </head>
 <body>
   <div id="app">
@@ -20,9 +20,25 @@
     <header>
       <div class="brand">
         <h1>Notie</h1>
-        <div class="notebook-title-container">
-          <input type="text" id="notebook-title-input" class="notebook-title" value="My Whiteboard" title="Click to rename Notebook">
-        </div>
+        <div class="notebook-switcher" id="notebook-switcher">
+            <!-- Left: editable notebook name -->
+            <input type="text" id="notebook-title-input" class="notebook-title" value="My Whiteboard" title="Click to rename this notebook" autocomplete="off" spellcheck="false">
+            <!-- Right: chevron to open switcher menu -->
+            <button class="notebook-chevron-btn" id="notebook-chevron-btn" title="Switch / Manage Notebooks">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+
+            <!-- Switcher dropdown panel -->
+            <div class="notebook-switcher-menu" id="notebook-switcher-menu">
+              <button class="nb-new-btn" id="nb-new-btn">
+                <span>✨</span> New Notebook
+              </button>
+              <div class="nb-menu-divider"></div>
+              <div class="nb-menu-list" id="nb-menu-list">
+                <!-- Populated dynamically by renderNotebookMenu() -->
+              </div>
+            </div>
+          </div>
       </div>
       
       <!-- Page tabs navigation -->
@@ -48,6 +64,7 @@
             <button class="dropdown-item" id="export-page-notie">⚙️ Page as Notie Layout</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="export-notebook-zip">📦 Notebook (ZIP)</button>
+            <button class="dropdown-item" id="export-session-zip">🌐 Full Session Backup</button>
           </div>
         </div>
 
@@ -359,9 +376,12 @@
                 </div>
               </div>
 
-              <div class="property-group">
-                <button class="action-btn" id="clear-canvas-btn" style="border-color: rgba(255, 94, 98, 0.4); color: #ff5e62; padding: 8px;">
+              <div class="property-group" style="display: flex; flex-direction: column; gap: 8px;">
+                <button class="action-btn" id="clear-canvas-btn" style="border-color: rgba(255, 94, 98, 0.4); color: #ff5e62; padding: 8px; width: 100%;">
                   🧹 Clear Page Canvas
+                </button>
+                <button class="action-btn" id="clear-clipboard-btn" style="border-color: rgba(255, 170, 0, 0.4); color: #ffaa00; padding: 8px; width: 100%;">
+                  📋 Clear Notie Clipboard
                 </button>
               </div>
             </div>
@@ -384,6 +404,7 @@
       
       <div class="bottom-section">
         <span>Infinite Canvas Column (0 - 9600 px)</span>
+        <span id="autosave-indicator" title="Autosaved to browser storage"></span>
         <div class="zoom-controls">
           <button class="zoom-btn" id="zoom-out-btn" title="Zoom Out (Ctrl+Wheel)">−</button>
           <span class="zoom-val" id="zoom-value-label" title="Reset Zoom">100%</span>
@@ -446,6 +467,19 @@
       </div>
     </div>
     
+    <!-- Custom Confirm Modal overlay -->
+    <div class="modal-overlay" id="confirm-modal">
+      <div class="modal-box" style="max-width: 400px; text-align: center;">
+        <div class="modal-header" style="justify-content: center; border-bottom: none; padding-bottom: 0;">
+          <h3 id="confirm-modal-message" style="margin-bottom: 10px; font-size: 16px; line-height: 1.4;">Are you sure?</h3>
+        </div>
+        <div class="modal-body" style="padding-top: 10px; display: flex; gap: 10px; justify-content: center;">
+          <button id="confirm-modal-cancel" style="background: #2b2b36; border: 1px solid #3b3b4f; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer; transition: background 0.2s;">Cancel</button>
+          <button id="confirm-modal-ok" style="background: #ff4757; border: none; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer; transition: background 0.2s;">Delete</button>
+        </div>
+      </div>
+    </div>
+
   </div>
   
   <!-- Main Bootstrapper -->
