@@ -81,8 +81,20 @@
       <!-- Active Challenge Card -->
       <div id="challenge-card" class="card-stage question-showing">
 
+        <!-- Start/Reveal Question Screen -->
+        <div id="screen-start" class="start-card-overlay" style="display: flex;">
+          <div class="start-icon-container">
+            <i data-lucide="play-circle" style="width: 48px; height: 48px; color: var(--color-secondary);"></i>
+          </div>
+          <h2>Ready to Practice?</h2>
+          <p>Reveal the question and start the practice timer when you are ready.</p>
+          <button id="btn-start-timer" class="btn-primary" style="min-width: 200px;">
+            <i data-lucide="play"></i> Reveal & Start
+          </button>
+        </div>
+
         <!-- Question Screen (active initially) -->
-        <div id="screen-question" style="display: flex; flex-direction: column; height: 100%; flex: 1;">
+        <div id="screen-question" style="display: none; flex-direction: column; height: 100%; flex: 1;">
           <div class="card-meta">
             <span id="badge-subject" class="badge-subject physics">Physics</span>
             <span id="topic-label" class="topic-label">Mechanics & Kinematics</span>
@@ -286,7 +298,9 @@
   <footer>
     <div class="footer-container">
       <span>Arithma JEE Practice Portal</span>
-      <span class="footer-attribution">Made with <a href="https://github.com/ItsSuhail" target="_blank" rel="noopener noreferrer" class="heart-link">❤️</a> by <a href="https://suhailhasan.onrender.com" target="_blank" rel="noopener noreferrer" class="author-link">Suhail</a></span>
+      <span class="footer-attribution">Made with <a href="https://github.com/ItsSuhail" target="_blank"
+          rel="noopener noreferrer" class="heart-link">❤️</a> by <a href="https://suhailhasan.onrender.com"
+          target="_blank" rel="noopener noreferrer" class="author-link">Suhail</a></span>
       <span>Designed for precision calculation training.</span>
     </div>
   </footer>

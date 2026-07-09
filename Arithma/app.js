@@ -51,6 +51,8 @@ function initDOMElements() {
   DOM.challengeCard = document.getElementById('challenge-card');
   DOM.screenQuestion = document.getElementById('screen-question');
   DOM.screenResult = document.getElementById('screen-result');
+  DOM.screenStart = document.getElementById('screen-start');
+  DOM.btnStartTimer = document.getElementById('btn-start-timer');
 
   DOM.badgeSubject = document.getElementById('badge-subject');
   DOM.topicLabel = document.getElementById('topic-label');
@@ -328,11 +330,21 @@ function loadNewQuestion() {
     DOM.unitLabel.style.display = 'none';
   }
 
-  startTimer();
-  DOM.inputMantissa.focus();
+  // Show start screen, hide question screen
+  DOM.screenQuestion.style.display = 'none';
+  DOM.screenStart.style.display = 'flex';
+  DOM.btnStartTimer.focus();
 
   // Re-trigger lucide icons
   window.lucide.createIcons();
+}
+
+// Start the practice timer and reveal the question
+function startPracticeTimer() {
+  DOM.screenStart.style.display = 'none';
+  DOM.screenQuestion.style.display = 'flex';
+  startTimer();
+  DOM.inputMantissa.focus();
 }
 
 // Evaluate correctness and render Result Panel
@@ -624,12 +636,15 @@ function setupEvents() {
   // Submit and next buttons
   DOM.btnSubmit.addEventListener('click', submitAnswer);
   DOM.btnNext.addEventListener('click', loadNewQuestion);
+  DOM.btnStartTimer.addEventListener('click', startPracticeTimer);
 
   // Form input interactions
   const triggerSubmitOnEnter = (e) => {
     if (e.key === 'Enter') {
       if (DOM.screenQuestion.style.display === 'flex') {
         submitAnswer();
+      } else if (DOM.screenStart.style.display === 'flex') {
+        startPracticeTimer();
       } else {
         loadNewQuestion();
       }
@@ -641,6 +656,23 @@ function setupEvents() {
 
   DOM.inputMantissa.addEventListener('input', updateLivePreview);
   DOM.inputExponent.addEventListener('input', updateLivePreview);
+
+  // Global keydown handler for Enter key navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      // If focused element is a button, let the default click event handle it
+      if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
+        return;
+      }
+      if (DOM.screenStart.style.display === 'flex') {
+        startPracticeTimer();
+        e.preventDefault();
+      } else if (DOM.screenResult.style.display === 'flex') {
+        loadNewQuestion();
+        e.preventDefault();
+      }
+    }
+  });
 
   // Sidebar Clear History button
   DOM.btnClearHistory.addEventListener('click', clearHistory);
