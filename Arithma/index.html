@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arithma — JEE Arithmetic & Precision Practice</title>
+
+  <!-- KaTeX for Beautiful Math Formula Rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+
+  <!-- Canvas Confetti for Celebrations -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Local Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- App Header -->
+  <header>
+    <div class="header-container">
+      <div class="logo-section">
+        <h1>Arithma</h1>
+      </div>
+
+      <div class="header-actions">
+        <!-- Practice Mode Toggle -->
+        <div class="mode-toggle-group">
+          <button id="mode-formula" class="btn-mode active">
+            <i data-lucide="microscope"></i> Formulas
+          </button>
+          <button id="mode-arithmetic" class="btn-mode">
+            <i data-lucide="binary"></i> Arithmetic
+          </button>
+        </div>
+
+        <!-- Settings Toggle Button -->
+        <button id="btn-settings" class="btn-icon" title="Settings">
+          <i data-lucide="settings"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dashboard Main Grid -->
+  <main class="dashboard-grid">
+
+    <!-- Left Workspace Panel -->
+    <section class="main-workspace">
+
+      <!-- Statistics Banner -->
+      <div class="stats-strip">
+        <div class="stat-box">
+          <span class="stat-label">Score</span>
+          <span id="stat-score" class="stat-value">0</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Current Streak</span>
+          <span id="stat-streak" class="stat-value">0</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Accuracy</span>
+          <span id="stat-accuracy" class="stat-value">0%</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Best Streak</span>
+          <span id="stat-best-streak" class="stat-value">0</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Avg Time</span>
+          <span id="stat-avg-time" class="stat-value">0.0s</span>
+        </div>
+      </div>
+
+      <!-- Active Challenge Card -->
+      <div id="challenge-card" class="card-stage question-showing">
+
+        <!-- Question Screen (active initially) -->
+        <div id="screen-question" style="display: flex; flex-direction: column; height: 100%; flex: 1;">
+          <div class="card-meta">
+            <span id="badge-subject" class="badge-subject physics">Physics</span>
+            <span id="topic-label" class="topic-label">Mechanics & Kinematics</span>
+
+            <div id="difficulty-dots" class="difficulty-indicator" title="Difficulty">
+              <span class="difficulty-dot filled"></span>
+              <span class="difficulty-dot"></span>
+              <span class="difficulty-dot"></span>
+              <span class="difficulty-dot"></span>
+              <span class="difficulty-dot"></span>
+            </div>
+          </div>
+
+          <!-- Formula / Expression rendered via KaTeX -->
+          <div class="math-container">
+            <div id="math-display" class="math-display"></div>
+          </div>
+
+          <!-- Variables List (hidden in Arithmetic mode) -->
+          <div id="variables-section" class="variables-section">
+            <h3 class="variables-title">Given Variables</h3>
+            <div id="variables-container" class="variables-grid">
+              <!-- Dynamically populated variable pills -->
+            </div>
+          </div>
+
+          <!-- Timer & Target variables prompt -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto;">
+            <div id="target-prompt" class="input-prompt">
+              <!-- e.g. "Find v_rms in m/s" -->
+            </div>
+
+            <div class="timer-container" title="Timer">
+              <i data-lucide="timer"></i>
+              <span id="timer-val">0.0</span>s
+            </div>
+          </div>
+
+          <!-- Answer Inputs -->
+          <div class="input-workspace">
+            <div class="scientific-input-group">
+              <!-- Mantissa Field (x) -->
+              <div class="input-field-container">
+                <input type="number" id="input-mantissa" class="sci-input" step="any" placeholder="e.g. 5.67" required>
+                <span class="input-sub-label">Mantissa (x)</span>
+              </div>
+
+              <span class="sci-multiplier">× 10</span>
+
+              <!-- Exponent Field (y) -->
+              <div class="input-field-container exponent">
+                <input type="number" id="input-exponent" class="sci-input" step="1" placeholder="e.g. -11" required>
+                <span class="input-sub-label">Exp (y)</span>
+              </div>
+
+              <!-- Target Unit display -->
+              <span id="unit-label" class="unit-label">m/s</span>
+            </div>
+
+            <!-- Parsed Live Preview -->
+            <div id="live-preview" class="live-preview">Preview: 0.00 × 10⁰</div>
+
+            <!-- Submit Button -->
+            <div class="workspace-actions">
+              <button id="btn-submit" class="btn-primary">
+                <i data-lucide="send"></i> Submit Answer
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Screen (toggled via JS) -->
+        <div id="screen-result" class="result-card-overlay" style="display: none;">
+          <!-- Glowing header with accuracy badge -->
+          <div id="result-status-header" class="result-status-header status-exact">
+            <div id="result-badge" class="result-badge">Perfect!</div>
+            <div id="result-accuracy-desc" class="result-accuracy">Within 0.05% error</div>
+          </div>
+
+          <!-- User input vs exact calculated answer -->
+          <div class="compare-block">
+            <div class="compare-box">
+              <span class="compare-title">Your Answer</span>
+              <span id="compare-user" class="compare-val">5.67 × 10⁻¹¹</span>
+            </div>
+            <div class="compare-box">
+              <span class="compare-title">Exact Value</span>
+              <span id="compare-exact" class="compare-val">5.668 × 10⁻¹¹</span>
+            </div>
+          </div>
+
+          <!-- Breakdown statistics -->
+          <div class="result-stats-grid">
+            <div class="res-stat-item">
+              <span class="res-stat-label"><i data-lucide="clock" size="14"></i> Time Taken</span>
+              <span id="res-time" class="res-stat-value">12.4s</span>
+            </div>
+            <div class="res-stat-item">
+              <span class="res-stat-label"><i data-lucide="trophy" size="14"></i> Score Gained</span>
+              <span id="res-points" class="res-stat-value points-positive">+120 pts</span>
+            </div>
+          </div>
+
+          <!-- Formula Description Banner -->
+          <div id="explanation-banner" class="explanation-banner">
+            Root Mean Square speed describes the average kinetic velocity of gas particles.
+          </div>
+
+          <!-- Next Question Button -->
+          <div class="countdown-btn-wrapper">
+            <button id="btn-next" class="btn-next">
+              Next Question <i data-lucide="arrow-right"></i>
+            </button>
+            <div id="countdown-bar" class="countdown-bar"></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Right Sidebar Drawer (History) -->
+    <aside class="sidebar-panel">
+      <div class="sidebar-header">
+        <h2>Session History</h2>
+        <button id="btn-clear-history" class="btn-text" title="Clear All History">
+          <i data-lucide="trash-2"></i> Clear
+        </button>
+      </div>
+
+      <!-- Attempt logs -->
+      <div id="history-list" class="history-list">
+        <div class="history-empty">No attempts yet. Start practicing!</div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Settings Modal Dialog -->
+  <div id="settings-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Practice Settings</h2>
+        <button id="settings-close" class="btn-icon" style="padding: 0.35rem;">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Difficulty Selection -->
+        <div class="setting-row">
+          <span class="setting-label">Difficulty Level</span>
+          <span class="setting-desc">Scales formula complexity and arithmetic expressions.</span>
+          <div class="difficulty-selector">
+            <button id="diff-select-1" class="btn-diff">1</button>
+            <button id="diff-select-2" class="btn-diff">2</button>
+            <button id="diff-select-3" class="btn-diff active">3</button>
+            <button id="diff-select-4" class="btn-diff">4</button>
+            <button id="diff-select-5" class="btn-diff">5</button>
+          </div>
+        </div>
+
+        <!-- JEE Approximations Toggle -->
+        <div class="setting-row horizontal">
+          <div>
+            <span class="setting-label">JEE Approximations</span>
+            <span class="setting-desc">Use g = 10, R = 8.3, Na = 6 × 10²³ for calculations.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-jee-mode" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Auto-Advance Toggle -->
+        <div class="setting-row horizontal">
+          <div>
+            <span class="setting-label">Auto-Advance</span>
+            <span class="setting-desc">Move to the next question automatically after 4 seconds.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-auto-advance" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Reset Statistics -->
+        <div class="setting-row" style="margin-top: 1rem;">
+          <button id="btn-reset-stats" class="btn-primary"
+            style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #f87171; box-shadow: none;">
+            <i data-lucide="refresh-cw"></i> Reset Stats & Streaks
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Element -->
+  <div id="toast" class="toast">Stats reset successfully.</div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-container">
+      <span>Arithma JEE Practice Portal</span>
+      <span class="footer-attribution">Made with <a href="https://github.com/ItsSuhail" target="_blank" rel="noopener noreferrer" class="heart-link">❤️</a> by <a href="https://suhailhasan.onrender.com" target="_blank" rel="noopener noreferrer" class="author-link">Suhail</a></span>
+      <span>Designed for precision calculation training.</span>
+    </div>
+  </footer>
+
+  <!-- Link app.js main module -->
+  <script type="module" src="app.js"></script>
+</body>
+
+</html>
