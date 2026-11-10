@@ -65,6 +65,9 @@ button { font: inherit; color: inherit; }
 .zoom .btn:last-child { border-right: 0; }
 #zval { font-family: var(--font-num); font-size: 12px; min-width: 58px; font-variant-numeric: tabular-nums; }
 
+.tools .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
 #stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--ground); }
 #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline-offset: -3px; }
 #cv.dragging { cursor: grabbing; }
@@ -108,6 +111,13 @@ button { font: inherit; color: inherit; }
     <div class="title"><strong id="fname">Rnote Viewer</strong><span id="fmeta">Loading…</span></div>
   </div>
   <div class="actions">
+    <div class="zoom tools" role="group" aria-label="Tool">
+      <button class="btn" id="tPan" type="button" aria-pressed="true" title="Pan (H)">Pan</button>
+      <button class="btn" id="tBox" type="button" aria-pressed="false" title="Box select (B)">Box select</button>
+      <button class="btn" id="tLasso" type="button" aria-pressed="false" title="Lasso select (L)">Lasso</button>
+    </div>
+    <button class="btn" id="undo" type="button" disabled title="Undo (Ctrl+Z)">Undo</button>
+    <button class="btn" id="reset" type="button" disabled title="Put every element back where the file had it">Reset layout</button>
     <button class="btn primary" id="open" type="button">Open .rnote file</button>
     <div class="zoom" role="group" aria-label="Zoom">
       <button class="btn" id="zout" type="button" aria-label="Zoom out">−</button>
@@ -309,6 +319,7 @@ const Core = (() => {
     };
   }
   function b64(s) {
+    if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(s);
     const bin = atob(s); const u = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     return u;
@@ -320,9 +331,9 @@ const Core = (() => {
     const [hx, hy] = halfExt(rect);
     const b = boundsOf([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([x, y]) => apply(m, x, y)), 1);
     if (bitmap) {
-      let data = img.data;
-      if (typeof data === 'string') data = b64(data); else if (Array.isArray(data)) data = Uint8Array.from(data); else data = new Uint8Array(0);
-      return { type: 'bitmap', m, hx, hy, data, w: num(img.pixel_width), h: num(img.pixel_height), fmt: String(img.memory_format || ''), b };
+      /* keep the base64 text and decode only when the image is on screen: large files hold hundreds of MB of pixels */
+      const raw = img.data;
+      return { type: 'bitmap', m, hx, hy, b64: typeof raw === 'string' ? raw : null, data: Array.isArray(raw) ? Uint8Array.from(raw) : null, w: num(img.pixel_width), h: num(img.pixel_height), fmt: String(img.memory_format || ''), b };
     }
     return { type: 'svg', m, hx, hy, svg: typeof v.svg_data === 'string' ? v.svg_data : '', b };
   }
@@ -369,6 +380,9 @@ const Core = (() => {
     let root;
     try { root = JSON.parse(text); }
     catch (e) { throw new Error('The file unpacked, but its contents are not JSON. It may use a newer binary serialization that this viewer does not read yet.'); }
+    return parseObject(root);
+  }
+  function parseObject(root) {
     const snap = findSnapshot(root);
     if (!snap) throw new Error('No drawing data found. This does not look like an Rnote document.');
     const strokes = unslot(snap.stroke_components);
@@ -457,7 +471,136 @@ const Core = (() => {
       stroke_components: rows, chrono_components: chr, chrono_counter: n,
     };
   }
-  return { parse, decodeToText, sampleSnapshot, affine, apply, unslot };
+  /* ---- streaming reader: pulls the document, version and each stroke/chrono slot out of the JSON as it
+     arrives, so no single string ever holds the whole (possibly 500 MB+) file ---- */
+  async function scanStream(stream, onProgress) {
+    const reader = stream.getReader();
+    const dec = new TextDecoder('utf-8');
+    const out = { version: '', document: null, strokes: [], chrono: [] };
+    const stack = [];                 // frames: {t:'o'|'a', key, st:'key'|'colon'|'val'|'after'|'prim', ck}
+    const re = /["\\]/g;
+    let strMode = 0, keyBuf = '', esc = false, cap = null, strokesClosed = false, chronoClosed = false;
+    let text = '', capFrom = -1;
+
+    function finishCap() {
+      const txt = cap.parts.join(''), kind = cap.kind;
+      cap = null;
+      let v = null;
+      try { v = JSON.parse(txt); } catch (e) { v = null; }
+      if (kind === 'stroke_components') { out.strokes.push(v); if (onProgress && out.strokes.length % 20 === 0) onProgress(out.strokes.length); }
+      else if (kind === 'chrono_components') out.chrono.push(v);
+      else if (kind === 'document') { if (!out.document) out.document = v; }
+      else if (kind === 'version') { if (!out.version && typeof v === 'string') out.version = v; }
+    }
+    function popFrame(i) {
+      const fr = stack.pop();
+      if (fr.t === 'a' && fr.key === 'stroke_components') strokesClosed = true;
+      if (fr.t === 'a' && fr.key === 'chrono_components') chronoClosed = true;
+      const parent = stack[stack.length - 1];
+      if (parent) parent.st = 'after';
+      if (cap && !cap.prim && cap.base === stack.length) { cap.parts.push(text.slice(capFrom, i + 1)); finishCap(); capFrom = -1; }
+    }
+    function startValue(f, c, i) {
+      let kind = null;
+      if (!cap) {
+        if (f.t === 'a') {
+          if (f.key === 'stroke_components' && !strokesClosed) kind = 'stroke_components';
+          else if (f.key === 'chrono_components' && !chronoClosed) kind = 'chrono_components';
+        } else if (f.ck === 'document' && !out.document) kind = 'document';
+        else if (f.ck === 'version' && c === 34 && !out.version) kind = 'version';
+        if (kind) { cap = { kind, base: stack.length, parts: [], prim: false }; capFrom = i; }
+      }
+      if (c === 123 || c === 91) stack.push({ t: c === 123 ? 'o' : 'a', key: f.t === 'o' ? f.ck : null, st: c === 123 ? 'key' : 'val', ck: null });
+      else if (c === 34) { strMode = 2; esc = false; }
+      else { f.st = 'prim'; if (kind) cap.prim = true; }
+    }
+    function process(t) {
+      text = t;
+      const n = t.length;
+      let i = 0;
+      capFrom = cap ? 0 : -1;
+      while (i < n) {
+        if (strMode) {
+          const segStart = i;
+          let p = i, found = -1;
+          if (esc) { esc = false; p = i + 1; }
+          for (;;) {
+            re.lastIndex = p;
+            const m = re.exec(text);
+            if (!m) break;
+            if (text.charCodeAt(m.index) === 92) {
+              if (m.index + 1 >= n) { esc = true; break; }
+              p = m.index + 2; continue;
+            }
+            found = m.index; break;
+          }
+          if (found < 0) { if (strMode === 1) keyBuf += text.slice(segStart); i = n; continue; }
+          if (strMode === 1) keyBuf += text.slice(segStart, found);
+          const wasKey = strMode === 1;
+          strMode = 0; i = found + 1;
+          const f = stack[stack.length - 1];
+          if (wasKey) {
+            let key = keyBuf; keyBuf = '';
+            if (key.indexOf('\\') >= 0) { try { key = JSON.parse('"' + key + '"'); } catch (e) { /* keep raw */ } }
+            f.ck = key; f.st = 'colon';
+          } else {
+            f.st = 'after';
+            if (cap && cap.base === stack.length) { cap.parts.push(text.slice(capFrom, i)); finishCap(); capFrom = -1; }
+          }
+          continue;
+        }
+        const c = text.charCodeAt(i);
+        const f = stack.length ? stack[stack.length - 1] : null;
+        if (f && f.st === 'prim') {
+          if (c === 44 || c === 93 || c === 125 || c === 32 || c === 10 || c === 13 || c === 9) {
+            f.st = 'after';
+            if (cap && cap.prim) { cap.parts.push(text.slice(capFrom, i)); finishCap(); capFrom = -1; }
+            continue;
+          }
+          i++; continue;
+        }
+        if (c === 32 || c === 10 || c === 13 || c === 9) { i++; continue; }
+        if (!f) { if (c === 123 || c === 91) stack.push({ t: c === 123 ? 'o' : 'a', key: null, st: c === 123 ? 'key' : 'val', ck: null }); i++; continue; }
+        if (f.st === 'key') { if (c === 34) { strMode = 1; keyBuf = ''; } else if (c === 125) popFrame(i); i++; continue; }
+        if (f.st === 'colon') { if (c === 58) f.st = 'val'; i++; continue; }
+        if (f.st === 'after') {
+          if (c === 44) f.st = f.t === 'o' ? 'key' : 'val';
+          else if (c === 125 || c === 93) popFrame(i);
+          i++; continue;
+        }
+        if (f.t === 'a' && c === 93) { popFrame(i); i++; continue; }
+        startValue(f, c, i);
+        i++;
+      }
+      if (cap) cap.parts.push(text.slice(capFrom));
+    }
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      process(dec.decode(value, { stream: true }));
+    }
+    const tail = dec.decode();
+    if (tail) process(tail);
+    return out;
+  }
+  async function parseFile(file, onProgress) {
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    let stream;
+    if (head[0] === 0x1f && head[1] === 0x8b) {
+      if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot decompress gzip files. Try a current version of Chrome, Edge, Firefox or Safari.');
+      stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+    } else if (head[0] === 0x28 && head[1] === 0xb5 && head[2] === 0x2f && head[3] === 0xfd) {
+      throw new Error('This file uses zstd compression, which this viewer cannot read yet. Re-save it from Rnote, or convert it to the gzip + JSON format.');
+    } else {
+      let i = 0; while (i < head.length && head[i] <= 32) i++;
+      if (head[i] !== 0x7b) throw new Error('Unrecognized file format. Expected a gzip-compressed Rnote document.');
+      stream = file.stream();
+    }
+    const out = await scanStream(stream, onProgress);
+    if (!out.strokes.length && !out.document) throw new Error('No drawing data found. This does not look like an Rnote document.');
+    return parseObject({ version: out.version, snapshot: { document: out.document, stroke_components: out.strokes, chrono_components: out.chrono } });
+  }
+  return { parse, parseObject, parseFile, scanStream, decodeToText, sampleSnapshot, affine, apply, unslot, b64 };
 })();
 //#CORE-END
 
@@ -494,15 +637,27 @@ const Core = (() => {
     } else fitAll();
   }
 
-  /* ---------- images / svg (lazy) ---------- */
+  /* ---------- images / svg (lazy, decoded only while visible) ---------- */
+  const decoded = new Set();
+  let frameNo = 0;
+  function evictImages() {
+    if (decoded.size <= 14) return;
+    const list = [...decoded].filter(it => it.last !== frameNo).sort((a, b) => a.last - b.last);
+    let n = decoded.size;
+    for (const it of list) {
+      if (n <= 10) break;
+      if (it.img && it.img.close) it.img.close();
+      it.img = null; it.state = undefined; decoded.delete(it); n--;
+    }
+  }
   function ensureImage(it) {
     if (it.state) return;
     it.state = 'loading';
     if (it.type === 'bitmap') {
-      const d = it.data;
+      const d = it.data || (it.b64 ? Core.b64(it.b64) : new Uint8Array(0));
       const png = d[0] === 0x89 && d[1] === 0x50, jpg = d[0] === 0xff && d[1] === 0xd8;
       if (png || jpg) {
-        createImageBitmap(new Blob([d])).then(bm => { it.img = bm; it.state = 'ready'; requestRender(); }).catch(() => { it.state = 'failed'; requestRender(); });
+        createImageBitmap(new Blob([d])).then(bm => { it.img = bm; it.state = 'ready'; decoded.add(it); requestRender(); }).catch(() => { it.state = 'failed'; requestRender(); });
       } else if (it.w > 0 && it.h > 0 && d.length >= it.w * it.h * 4) {
         const c = document.createElement('canvas'); c.width = it.w; c.height = it.h;
         const c2 = c.getContext('2d'), id = c2.createImageData(it.w, it.h);
@@ -513,7 +668,7 @@ const Core = (() => {
           if (pre && a > 0 && a < 255) { const f = 255 / a; r = Math.min(255, r * f); g = Math.min(255, g * f); b = Math.min(255, b * f); }
           id.data[i] = r; id.data[i + 1] = g; id.data[i + 2] = b; id.data[i + 3] = a;
         }
-        c2.putImageData(id, 0, 0); it.img = c; it.state = 'ready';
+        c2.putImageData(id, 0, 0); it.img = c; it.state = 'ready'; decoded.add(it);
       } else it.state = 'failed';
     } else {
       const im = new Image(), url = URL.createObjectURL(new Blob([it.svg], { type: 'image/svg+xml' }));
@@ -591,7 +746,7 @@ const Core = (() => {
     c.restore();
   }
   function drawImageItem(c, it) {
-    ensureImage(it);
+    ensureImage(it); it.last = frameNo;
     c.save(); c.transform(...it.m);
     if (it.state === 'ready') c.drawImage(it.img, -it.hx, -it.hy, it.hx * 2, it.hy * 2);
     else { c.fillStyle = 'rgba(128,140,160,.18)'; c.fillRect(-it.hx, -it.hy, it.hx * 2, it.hy * 2); c.strokeStyle = 'rgba(128,140,160,.6)'; c.lineWidth = 1 / cam.k; c.strokeRect(-it.hx, -it.hy, it.hx * 2, it.hy * 2); }
@@ -637,7 +792,7 @@ const Core = (() => {
   }
 
   function render() {
-    raf = 0;
+    raf = 0; frameNo++;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     if (!model) return;
@@ -661,10 +816,12 @@ const Core = (() => {
       if (b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1) continue;
       if (b[2] - b[0] < minPx && b[3] - b[1] < minPx) continue;
       ctx.globalAlpha = it.type === 'brush' ? it.alpha : 1;
-      drawItem(ctx, it);
+      if (it.tf) { ctx.save(); ctx.transform(...it.tf); drawItem(ctx, it); ctx.restore(); } else drawItem(ctx, it);
     }
     ctx.globalAlpha = 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    evictImages();
+    drawSelection();
     $('#zval').textContent = Math.round(k * 100) + '%';
     drawMiniFrame(vx0, vy0, vx1, vy1);
   }
@@ -687,9 +844,10 @@ const Core = (() => {
     c.lineJoin = 'round'; c.lineCap = 'round';
     for (const it of model.items) {
       if (it.type === 'brush') {
-        c.strokeStyle = it.color; c.lineWidth = Math.max(0.7, it.width * s); c.beginPath();
+        const tf = it.tf || [1, 0, 0, 1, 0, 0];
+        c.strokeStyle = it.color; c.lineWidth = Math.max(0.7, it.width * tf[0] * s); c.beginPath();
         const step = Math.max(1, Math.floor(it.xs.length / 60));
-        for (let i = 0; i < it.xs.length; i += step) { const x = (it.xs[i] - B[0]) * s, y = (it.ys[i] - B[1]) * s; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+        for (let i = 0; i < it.xs.length; i += step) { const x = (it.xs[i] * tf[0] + tf[4] - B[0]) * s, y = (it.ys[i] * tf[3] + tf[5] - B[1]) * s; i ? c.lineTo(x, y) : c.moveTo(x, y); }
         c.stroke();
       } else {
         c.fillStyle = it.type === 'text' ? 'rgba(90,100,120,.55)' : 'rgba(90,120,170,.4)';
@@ -726,14 +884,17 @@ const Core = (() => {
   const local = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   cv.addEventListener('pointerdown', e => {
     cv.setPointerCapture(e.pointerId); cv.focus({ preventScroll: true });
-    ptrs.set(e.pointerId, local(e)); cv.classList.add('dragging');
-    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
+    ptrs.set(e.pointerId, local(e));
+    if (ptrs.size === 1 && tool !== 'pan' && e.button === 0 && !spaceDown && model) { startSelectDrag(local(e), e); return; }
+    cv.classList.add('dragging');
+    if (ptrs.size === 2) { cancelDrag(); const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
   });
   cv.addEventListener('pointermove', e => {
     const p = local(e);
-    if (!ptrs.has(e.pointerId)) { setCoords(p); return; }
+    if (!ptrs.has(e.pointerId)) { setCoords(p); updateCursor(p); return; }
     const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
-    if (ptrs.size === 1) { cam.tx += p.x - prev.x; cam.ty += p.y - prev.y; requestRender(); setCoords(p); }
+    if (ptrs.size === 1 && drag) { dragMove(p, e); setCoords(p); }
+    else if (ptrs.size === 1) { cam.tx += p.x - prev.x; cam.ty += p.y - prev.y; requestRender(); setCoords(p); }
     else if (ptrs.size === 2 && pinch) {
       const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
       cam.tx += cx - pinch.cx; cam.ty += cy - pinch.cy;
@@ -741,7 +902,7 @@ const Core = (() => {
       pinch = { d, cx, cy }; requestRender();
     }
   });
-  const up = e => { ptrs.delete(e.pointerId); pinch = null; if (!ptrs.size) cv.classList.remove('dragging'); };
+  const up = e => { const had = drag && ptrs.size === 1; ptrs.delete(e.pointerId); pinch = null; if (had) endDrag(e.type === 'pointercancel'); if (!ptrs.size) cv.classList.remove('dragging'); };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   cv.addEventListener('wheel', e => {
     e.preventDefault();
@@ -754,7 +915,13 @@ const Core = (() => {
   }, { passive: false });
   cv.addEventListener('keydown', e => {
     const cx = W / 2, cy = H / 2, step = 60;
-    if (e.key === '+' || e.key === '=') zoomAt(cx, cy, 1.25);
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) undo();
+    else if (e.key === ' ') spaceDown = true;
+    else if (e.key === 'Escape') setSel([]);
+    else if (e.key === 'h' || e.key === 'H') setTool('pan');
+    else if (e.key === 'b' || e.key === 'B') setTool('box');
+    else if (e.key === 'l' || e.key === 'L') setTool('lasso');
+    else if (e.key === '+' || e.key === '=') zoomAt(cx, cy, 1.25);
     else if (e.key === '-' || e.key === '_') zoomAt(cx, cy, 0.8);
     else if (e.key === '0') zoomAt(cx, cy, 1 / cam.k);
     else if (e.key === 'f' || e.key === 'F') fitAll();
@@ -765,6 +932,186 @@ const Core = (() => {
     else return;
     e.preventDefault();
   });
+  cv.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
+  cv.addEventListener('blur', () => { spaceDown = false; });
+
+  /* ---------- selection: box / lasso select, move, resize (view only, nothing is drawn or saved) ---------- */
+  let tool = 'pan', sel = [], drag = null, spaceDown = false, undoStack = [];
+  const IDT = [1, 0, 0, 1, 0, 0];
+  const S2W = (x, y) => [(x - cam.tx) / cam.k, (y - cam.ty) / cam.k];
+  const W2S = (x, y) => [x * cam.k + cam.tx, y * cam.k + cam.ty];
+  const corner = (b, i) => [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]][i];
+  function selBounds() {
+    if (!sel.length) return null;
+    const b = sel[0].b.slice();
+    for (const it of sel) { b[0] = Math.min(b[0], it.b[0]); b[1] = Math.min(b[1], it.b[1]); b[2] = Math.max(b[2], it.b[2]); b[3] = Math.max(b[3], it.b[3]); }
+    return b;
+  }
+  function selScreen(b) { const [x0, y0] = W2S(b[0], b[1]), [x1, y1] = W2S(b[2], b[3]); return [x0 - 3, y0 - 3, x1 + 3, y1 + 3]; }
+  function handleAt(p, s) {
+    const r = matchMedia('(pointer: coarse)').matches ? 20 : 12;
+    const cs = [[s[0], s[1]], [s[2], s[1]], [s[2], s[3]], [s[0], s[3]]];
+    for (let i = 0; i < 4; i++) if (Math.hypot(p.x - cs[i][0], p.y - cs[i][1]) <= r) return i;
+    return -1;
+  }
+  function setTf(it, sx, sy, tx, ty) {
+    it.tf = [sx, 0, 0, sy, tx, ty]; const o = it.b0;
+    it.b = [o[0] * sx + tx, o[1] * sy + ty, o[2] * sx + tx, o[3] * sy + ty];
+  }
+  const snap = () => sel.map(it => ({ it, tf: it.tf ? it.tf.slice() : null }));
+  function restore(list) { for (const { it, tf } of list) { if (tf) setTf(it, tf[0], tf[3], tf[4], tf[5]); else { it.tf = null; it.b = it.b0.slice(); } } }
+  function recomputeBounds() {
+    let b = null;
+    for (const it of model.items) { if (!b) b = it.b.slice(); else { b[0] = Math.min(b[0], it.b[0]); b[1] = Math.min(b[1], it.b[1]); b[2] = Math.max(b[2], it.b[2]); b[3] = Math.max(b[3], it.b[3]); } }
+    if (b) model.bounds = b;
+  }
+  function finishLayout() { recomputeBounds(); buildMini(); updateTools(); requestRender(); }
+  function updateTools() {
+    for (const [id, t] of [['tPan', 'pan'], ['tBox', 'box'], ['tLasso', 'lasso']]) $('#' + id).setAttribute('aria-pressed', String(tool === t));
+    $('#undo').disabled = !undoStack.length;
+    $('#reset').disabled = !(model && model.items.some(it => it.tf));
+    $('#hint').textContent = tool === 'pan' ? 'Drag to pan · scroll or pinch to zoom'
+      : sel.length ? `${sel.length} selected · drag to move · drag a corner to resize (Shift: free)`
+      : tool === 'box' ? 'Drag a box to select · Space + drag to pan' : 'Draw around elements to select · Space + drag to pan';
+  }
+  function setSel(list) { sel = list; updateTools(); requestRender(); }
+  function setTool(t) { tool = t; drag = null; cv.style.cursor = ''; if (t === 'pan') sel = []; updateTools(); requestRender(); }
+  function undo() { const l = undoStack.pop(); if (l) { restore(l); finishLayout(); } }
+  function resetLayout() { for (const it of model.items) { it.tf = null; it.b = it.b0.slice(); } undoStack = []; finishLayout(); }
+  $('#tPan').onclick = () => setTool('pan'); $('#tBox').onclick = () => setTool('box'); $('#tLasso').onclick = () => setTool('lasso');
+  $('#undo').onclick = undo; $('#reset').onclick = resetLayout;
+
+  function polyHas(poly, x, y) {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  }
+  function itemSelected(it, test) {
+    const t = it.tf || IDT;
+    if (it.type === 'brush') { for (let i = 0; i < it.xs.length; i++) if (test(it.xs[i] * t[0] + t[4], it.ys[i] * t[3] + t[5])) return true; return false; }
+    const b = it.b;
+    if (it.type === 'bitmap' || it.type === 'svg') return test(b[0], b[1]) && test(b[2], b[1]) && test(b[2], b[3]) && test(b[0], b[3]);
+    return test((b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+  }
+  function nearBrush(it, x, y, tol) {
+    const t = it.tf || IDT, r = it.width * t[0] / 2 + tol, n = it.xs.length;
+    for (let i = 0; i < n; i++) {
+      const x1 = it.xs[i] * t[0] + t[4], y1 = it.ys[i] * t[3] + t[5];
+      if (i === 0) { if (Math.hypot(x - x1, y - y1) <= r) return true; continue; }
+      const x0 = it.xs[i - 1] * t[0] + t[4], y0 = it.ys[i - 1] * t[3] + t[5];
+      const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy;
+      const u = l2 ? Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / l2)) : 0;
+      if (Math.hypot(x - (x0 + u * dx), y - (y0 + u * dy)) <= r) return true;
+    }
+    return false;
+  }
+  /* click-select: handwriting and text first, then shapes, then big images (so a page image never steals the click) */
+  function pick(wx, wy) {
+    const tol = 7 / cam.k, items = model.items;
+    for (const types of [['brush', 'text'], ['shape'], ['bitmap', 'svg']]) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (!types.includes(it.type)) continue;
+        const b = it.b;
+        if (wx < b[0] - tol || wx > b[2] + tol || wy < b[1] - tol || wy > b[3] + tol) continue;
+        if (it.type === 'brush') { if (nearBrush(it, wx, wy, tol)) return it; } else return it;
+      }
+    }
+    return null;
+  }
+  function startSelectDrag(p, e) {
+    const sb = selBounds();
+    if (sb) {
+      const s = selScreen(sb), h = handleAt(p, s);
+      if (h >= 0) { drag = { type: 'resize', c: corner(sb, h), a: corner(sb, (h + 2) % 4), orig: snap(), moved: false }; return; }
+      if (p.x >= s[0] && p.x <= s[2] && p.y >= s[1] && p.y <= s[3]) { drag = { type: 'move', start: p, orig: snap(), moved: false }; return; }
+    }
+    drag = { type: tool === 'lasso' ? 'lasso' : 'box', start: p, cur: p, pts: [p], add: e.shiftKey, moved: false };
+  }
+  function dragMove(p, e) {
+    const d = drag;
+    if (d.type === 'move') {
+      const dx = (p.x - d.start.x) / cam.k, dy = (p.y - d.start.y) / cam.k;
+      if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 2) d.moved = true;
+      for (const { it, tf } of d.orig) { const t = tf || IDT; setTf(it, t[0], t[3], t[4] + dx, t[5] + dy); }
+    } else if (d.type === 'resize') {
+      const q = S2W(p.x, p.y), a = d.a, vx = d.c[0] - a[0], vy = d.c[1] - a[1];
+      let fx, fy;
+      if (e.shiftKey) { fx = vx ? (q[0] - a[0]) / vx : 1; fy = vy ? (q[1] - a[1]) / vy : 1; }
+      else { fx = fy = ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / (vx * vx + vy * vy || 1); }
+      fx = Math.min(60, Math.max(0.02, fx)); fy = Math.min(60, Math.max(0.02, fy));
+      d.moved = true;
+      for (const { it, tf } of d.orig) { const t = tf || IDT; setTf(it, t[0] * fx, t[3] * fy, a[0] + fx * (t[4] - a[0]), a[1] + fy * (t[5] - a[1])); }
+    } else {
+      d.cur = p;
+      if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 4) d.moved = true;
+      if (d.type === 'lasso') d.pts.push(p);
+    }
+    requestRender();
+  }
+  function cancelDrag() { if (drag) endDrag(true); }
+  function endDrag(cancel) {
+    const d = drag; drag = null;
+    if (!d) return;
+    if (d.type === 'move' || d.type === 'resize') {
+      if (d.moved) { undoStack.push(d.orig); finishLayout(); }
+    } else if (!cancel) {
+      if (!d.moved) {
+        const w = S2W(d.start.x, d.start.y), hit = pick(w[0], w[1]);
+        if (hit) setSel(d.add ? (sel.includes(hit) ? sel.filter(x => x !== hit) : [...sel, hit]) : [hit]);
+        else if (!d.add) setSel([]);
+      } else {
+        let test;
+        if (d.type === 'box') {
+          const a = S2W(Math.min(d.start.x, d.cur.x), Math.min(d.start.y, d.cur.y)), b = S2W(Math.max(d.start.x, d.cur.x), Math.max(d.start.y, d.cur.y));
+          test = (x, y) => x >= a[0] && x <= b[0] && y >= a[1] && y <= b[1];
+        } else {
+          const poly = d.pts.map(q => S2W(q.x, q.y));
+          test = (x, y) => polyHas(poly, x, y);
+        }
+        const found = model.items.filter(it => itemSelected(it, test));
+        setSel(d.add ? [...new Set([...sel, ...found])] : found);
+      }
+    }
+    requestRender();
+  }
+  function updateCursor(p) {
+    if (tool === 'pan' || spaceDown) { cv.style.cursor = ''; return; }
+    let c = 'crosshair';
+    const b = selBounds();
+    if (b) {
+      const s = selScreen(b), h = handleAt(p, s);
+      if (h >= 0) c = h % 2 === 0 ? 'nwse-resize' : 'nesw-resize';
+      else if (p.x >= s[0] && p.x <= s[2] && p.y >= s[1] && p.y <= s[3]) c = 'move';
+    }
+    cv.style.cursor = c;
+  }
+  function drawSelection() {
+    const b = selBounds();
+    ctx.save();
+    if (b) {
+      const s = selScreen(b);
+      ctx.fillStyle = accent; ctx.globalAlpha = 0.07; ctx.fillRect(s[0], s[1], s[2] - s[0], s[3] - s[1]); ctx.globalAlpha = 1;
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); ctx.strokeRect(s[0], s[1], s[2] - s[0], s[3] - s[1]); ctx.setLineDash([]);
+      ctx.fillStyle = '#fff';
+      for (const [x, y] of [[s[0], s[1]], [s[2], s[1]], [s[2], s[3]], [s[0], s[3]]]) { ctx.fillRect(x - 5, y - 5, 10, 10); ctx.strokeRect(x - 5, y - 5, 10, 10); }
+    }
+    if (drag && drag.moved && (drag.type === 'box' || drag.type === 'lasso')) {
+      ctx.strokeStyle = accent; ctx.fillStyle = accent; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+      if (drag.type === 'box') {
+        const x = Math.min(drag.start.x, drag.cur.x), y = Math.min(drag.start.y, drag.cur.y), w = Math.abs(drag.cur.x - drag.start.x), h = Math.abs(drag.cur.y - drag.start.y);
+        ctx.globalAlpha = 0.1; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1; ctx.strokeRect(x, y, w, h);
+      } else {
+        ctx.beginPath(); drag.pts.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath();
+        ctx.globalAlpha = 0.1; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   let coordPending = null;
   function setCoords(p) {
     if (coordPending) { coordPending = p; return; }
@@ -780,20 +1127,20 @@ const Core = (() => {
   function showNotice(msg) { $('#noticeText').textContent = msg; $('#notice').hidden = !msg; }
   $('#noticeX').onclick = () => showNotice('');
   function setModel(m, name, extra) {
-    model = m;
+    model = m; sel = []; undoStack = []; drag = null;
+    for (const it of m.items) { it.b0 = it.b.slice(); it.tf = null; }
     $('#fname').textContent = name;
     const w = m.bounds[2] - m.bounds[0], h = m.bounds[3] - m.bounds[1];
     $('#fmeta').textContent = [`${m.items.length.toLocaleString('en-US')} elements`, `${fmt(w)} × ${fmt(h)} px`, m.version ? `format ${m.version}` : '', extra].filter(Boolean).join(' · ');
     const un = Object.entries(m.unsupported);
     showNotice(un.length ? 'Not drawn: ' + un.map(([k, v]) => `${v} × ${k}`).join(', ') + '.' : (m.items.length ? '' : 'This file has no drawable elements.'));
-    buildMini(); initialView();
+    buildMini(); initialView(); updateTools();
   }
   async function loadFile(file) {
     $('#fmeta').textContent = 'Reading ' + file.name + '…';
     try {
-      const u8 = new Uint8Array(await file.arrayBuffer());
-      const text = await Core.decodeToText(u8);
-      setModel(Core.parse(text), file.name, 'read locally');
+      const m = await Core.parseFile(file, n => { $('#fmeta').textContent = `Reading ${file.name}… ${n.toLocaleString('en-US')} elements`; });
+      setModel(m, file.name, 'read locally');
     } catch (err) {
       showNotice(err && err.message ? err.message : 'Could not open this file.');
       $('#fmeta').textContent = model ? 'Previous file still shown' : 'No file open';
