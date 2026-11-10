@@ -1,0 +1,823 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Rnote Viewer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: toolbar on top, canvas fills the rest, minimap and readout float over the canvas corners. */
+:root {
+  --ground: #e6e9ee;
+  --panel: #f6f7f9;
+  --ink: #1b2027;
+  --ink-2: #5b6672;
+  --line: #ccd2da;
+  --accent: #2c6bd6;
+  --accent-ink: #ffffff;
+  --warn: #8f5200;
+  --warn-bg: #fbf0dc;
+  --shadow: 0 1px 2px rgba(20, 30, 45, .12), 0 6px 20px rgba(20, 30, 45, .10);
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #13161a; --panel: #1c2026; --ink: #e5e8ec; --ink-2: #97a1ad; --line: #323941;
+    --accent: #6ea3ff; --accent-ink: #0b1220; --warn: #e3ad55; --warn-bg: #2d2515;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #13161a; --panel: #1c2026; --ink: #e5e8ec; --ink-2: #97a1ad; --line: #323941;
+  --accent: #6ea3ff; --accent-ink: #0b1220; --warn: #e3ad55; --warn-bg: #2d2515;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-ui);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 220px; }
+.mark { flex: none; color: var(--accent); display: grid; }
+.title { display: flex; flex-direction: column; min-width: 0; }
+.title strong { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title span { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn {
+  appearance: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
+  padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; line-height: 1.2;
+}
+.btn:hover { border-color: var(--ink-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.07); }
+.zoom { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.zoom .btn { border: 0; border-radius: 0; border-right: 1px solid var(--line); min-width: 34px; }
+.zoom .btn:last-child { border-right: 0; }
+#zval { font-family: var(--font-num); font-size: 12px; min-width: 58px; font-variant-numeric: tabular-nums; }
+
+#stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--ground); }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline-offset: -3px; }
+#cv.dragging { cursor: grabbing; }
+
+.hud {
+  position: absolute; bottom: 12px; left: max(16px, env(safe-area-inset-left, 0px));
+  display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+  font-size: 12px; color: var(--ink-2); box-shadow: var(--shadow); max-width: calc(100% - 220px); pointer-events: none;
+}
+.gridbtn { pointer-events: auto; padding: 3px 9px; font-size: 12px; }
+.gridbtn[aria-pressed="false"] { color: var(--ink-2); }
+.hud .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--ink); }
+#mini {
+  position: absolute; bottom: 12px; right: max(16px, env(safe-area-inset-right, 0px));
+  border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); background: var(--panel);
+  touch-action: none; cursor: crosshair;
+}
+.notice {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); box-sizing: border-box;
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); border-radius: 6px;
+  padding: 8px 10px; font-size: 13px; line-height: 1.4; box-shadow: var(--shadow);
+}
+.notice p { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notice button { appearance: none; background: none; border: 0; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
+#dropmask {
+  position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  display: grid; place-items: center; font-weight: 600; font-size: 16px; pointer-events: none;
+}
+@media (max-width: 520px) { .hud { max-width: calc(100% - 150px); } }
+</style>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22l1.2-5L17.5 4.7a2.1 2.1 0 013 3L8.2 19.8 4 22z"/><path d="M15 7.2l3.8 3.8"/><path d="M13 22h9"/></svg>
+    </span>
+    <div class="title"><strong id="fname">Rnote Viewer</strong><span id="fmeta">Loading…</span></div>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="open" type="button">Open .rnote file</button>
+    <div class="zoom" role="group" aria-label="Zoom">
+      <button class="btn" id="zout" type="button" aria-label="Zoom out">−</button>
+      <button class="btn" id="zval" type="button" aria-label="Reset zoom to 100%">100%</button>
+      <button class="btn" id="zin" type="button" aria-label="Zoom in">+</button>
+      <button class="btn" id="fit" type="button">Fit</button>
+    </div>
+  </div>
+</header>
+
+<main id="stage">
+  <canvas id="cv" tabindex="0" aria-label="Rnote canvas. Drag to pan, scroll or pinch to zoom, press F to fit."></canvas>
+  <div class="notice" id="notice" role="status" hidden><p id="noticeText"></p><button type="button" id="noticeX" aria-label="Dismiss">×</button></div>
+  <div class="hud" id="hud"><button class="btn gridbtn" id="gridBtn" type="button" aria-pressed="true">Grid: on</button><span>x <span class="num" id="cx">0</span></span><span>y <span class="num" id="cy">0</span></span><span id="hint">Drag to pan · scroll or pinch to zoom</span></div>
+  <canvas id="mini" width="168" height="112" style="width:168px;height:112px" aria-label="Overview map"></canvas>
+  <div id="dropmask" hidden>Drop a .rnote file to open it</div>
+</main>
+<input type="file" id="file" hidden>
+
+<script>
+//#CORE-START
+const Core = (() => {
+  const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v)) ? v : d;
+
+  /* slotmap -> plain array, keeping index alignment (null for empty slots) */
+  function unslot(x) {
+    if (!x) return [];
+    const arr = Array.isArray(x) ? x : (typeof x === 'object' ? Object.values(x) : []);
+    return arr.map(e => (e && typeof e === 'object' && !Array.isArray(e) && 'value' in e && Object.keys(e).length <= 2) ? e.value : e);
+  }
+  function pt(p) {
+    if (Array.isArray(p)) return [num(p[0]), num(p[1])];
+    if (p && typeof p === 'object') {
+      if ('x' in p) return [num(p.x), num(p.y)];
+      if ('pos' in p) return pt(p.pos);
+      if (Array.isArray(p.data)) return pt(p.data);
+    }
+    return [0, 0];
+  }
+  /* serde external tag: {"lineto": {...}} -> ['lineto', {...}] */
+  function tagged(o) {
+    if (typeof o === 'string') return [o.toLowerCase().replace(/_/g, ''), null];
+    if (o && typeof o === 'object' && !Array.isArray(o)) {
+      const k = Object.keys(o);
+      if (k.length === 1) return [k[0].toLowerCase().replace(/_/g, ''), o[k[0]]];
+    }
+    return [null, o];
+  }
+  function color(c) {
+    if (c == null) return null;
+    let r, g, b, a = 1;
+    if (Array.isArray(c)) { [r, g, b, a = 1] = c; }
+    else if (typeof c === 'object') { if (c.color) return color(c.color); ({ r, g, b, a = 1 } = c); }
+    else return null;
+    if (![r, g, b].every(Number.isFinite)) return null;
+    const big = Math.max(r, g, b) > 1;
+    const s = big ? 1 : 255;
+    const al = big ? (a > 1 ? a / 255 : a) : a;
+    return { css: `rgba(${Math.round(r * s)},${Math.round(g * s)},${Math.round(b * s)},${+al.toFixed(3)})`, a: al };
+  }
+  function affine(t) {
+    let m = t && (t.affine !== undefined ? t.affine : t);
+    if (m && !Array.isArray(m) && m.matrix) m = m.matrix;
+    if (Array.isArray(m)) {
+      if (m.length === 9) return [m[0], m[1], m[3], m[4], m[6], m[7]];
+      if (m.length === 16) return [m[0], m[1], m[4], m[5], m[12], m[13]];
+      if (m.length === 6) return m.slice();
+    }
+    return [1, 0, 0, 1, 0, 0];
+  }
+  const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  function halfExt(rect) {
+    const h = rect && ((rect.cuboid && rect.cuboid.half_extents) || rect.half_extents);
+    return pt(h || [0, 0]);
+  }
+  function boundsOf(points, pad = 0) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of points) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+    if (!Number.isFinite(x0)) return [0, 0, 0, 0];
+    return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+  }
+
+  function styleOf(s) {
+    const [k, o] = tagged(s);
+    const opts = (o && typeof o === 'object') ? o : (s && typeof s === 'object' ? s : {});
+    let curve = opts.pressure_curve;
+    if (curve && typeof curve === 'object') curve = Object.keys(curve)[0];
+    return {
+      kind: k || 'smooth',
+      width: num(opts.stroke_width !== undefined ? opts.stroke_width : opts.width, 2),
+      stroke: color(opts.stroke_color !== undefined ? opts.stroke_color : opts.color),
+      fill: color(opts.fill_color),
+      curve: typeof curve === 'string' ? curve.toLowerCase() : 'const',
+    };
+  }
+
+  /* ---- pen paths ---- */
+  function el(e) {
+    if (!e) return { x: 0, y: 0, p: 0.5 };
+    const q = pt(e.pos !== undefined ? e.pos : e);
+    return { x: q[0], y: q[1], p: num(e.pressure, 0.5) };
+  }
+  function flattenPath(path) {
+    const out = [];
+    if (!path) return out;
+    if (Array.isArray(path)) { for (const e of path) out.push(el(e)); return out; }
+    let cur = el(path.start);
+    out.push(cur);
+    const segs = path.seg || path.segments || path.segs || [];
+    const seglist = Array.isArray(segs) ? segs : Object.values(segs);
+    for (const s of seglist) {
+      const [k, v] = tagged(s);
+      if (!v) continue;
+      if (k === 'lineto') {
+        cur = el(v.end !== undefined ? v.end : v); out.push(cur);
+      } else if (k === 'quadbezto' || k === 'cubbezto' || k === 'cubicbezto') {
+        const end = el(v.end);
+        const cps = k === 'quadbezto' ? [pt(v.cp)] : [pt(v.cp1), pt(v.cp2)];
+        const chord = Math.hypot(end.x - cur.x, end.y - cur.y);
+        const n = Math.max(3, Math.min(20, Math.ceil(chord / 4)));
+        for (let i = 1; i <= n; i++) {
+          const t = i / n, u = 1 - t;
+          let x, y;
+          if (cps.length === 1) {
+            x = u * u * cur.x + 2 * u * t * cps[0][0] + t * t * end.x;
+            y = u * u * cur.y + 2 * u * t * cps[0][1] + t * t * end.y;
+          } else {
+            x = u * u * u * cur.x + 3 * u * u * t * cps[0][0] + 3 * u * t * t * cps[1][0] + t * t * t * end.x;
+            y = u * u * u * cur.y + 3 * u * u * t * cps[0][1] + 3 * u * t * t * cps[1][1] + t * t * t * end.y;
+          }
+          out.push({ x, y, p: cur.p + (end.p - cur.p) * t });
+        }
+        cur = end;
+      }
+    }
+    return out;
+  }
+
+  /* ---- strokes ---- */
+  function parseBrush(v) {
+    const pts = flattenPath(v.path);
+    const st = styleOf(v.style);
+    const b = boundsOf(pts.map(p => [p.x, p.y]), st.width * 1.6 + 1);
+    return {
+      type: 'brush', xs: pts.map(p => p.x), ys: pts.map(p => p.y), ps: pts.map(p => p.p),
+      color: (st.stroke || { css: 'rgb(0,0,0)' }).css, alpha: st.stroke ? st.stroke.a : 1,
+      width: st.width, curve: st.curve, b,
+    };
+  }
+  function parseShape(v) {
+    const st = styleOf(v.style);
+    const [k, s] = tagged(v.shape);
+    if (!s || typeof s !== 'object') return { type: 'unsupported', kind: 'shape:' + (k || 'unknown') };
+    let shape = null, pts = [];
+    const m0 = [1, 0, 0, 1, 0, 0];
+    if (k === 'line') { shape = { kind: 'line', a: pt(s.start), b: pt(s.end) }; pts = [shape.a, shape.b]; }
+    else if (k === 'arrow') { shape = { kind: 'arrow', a: pt(s.start), b: pt(s.tip !== undefined ? s.tip : s.end) }; pts = [shape.a, shape.b]; }
+    else if (k === 'quadbez' || k === 'quadraticbezier') { shape = { kind: 'quad', a: pt(s.start), c: pt(s.cp), b: pt(s.end) }; pts = [shape.a, shape.c, shape.b]; }
+    else if (k === 'cubbez' || k === 'cubicbezier') { shape = { kind: 'cubic', a: pt(s.start), c1: pt(s.cp1), c2: pt(s.cp2), b: pt(s.end) }; pts = [shape.a, shape.c1, shape.c2, shape.b]; }
+    else if (k === 'polyline' || k === 'polygon') {
+      const list = [pt(s.start)];
+      for (const e of (s.path || [])) {
+        const [tk, tv] = tagged(e);
+        list.push(tk && tv && tv.end !== undefined ? pt(tv.end) : pt(e));
+      }
+      shape = { kind: k, pts: list }; pts = list;
+    }
+    else if (k === 'rectangle' || k === 'rect' || k === 'ellipse') {
+      const m = affine(s.transform);
+      let hx, hy;
+      if (k !== 'ellipse') [hx, hy] = halfExt(s); else [hx, hy] = pt(s.radii);
+      shape = { kind: k === 'ellipse' ? 'ellipse' : 'rect', m, hx, hy };
+      pts = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([x, y]) => apply(m, x, y));
+    }
+    else return { type: 'unsupported', kind: 'shape:' + k };
+    const hasAny = st.stroke || st.fill;
+    return {
+      type: 'shape', shape, stroke: hasAny ? (st.stroke ? st.stroke.css : null) : 'rgb(0,0,0)',
+      fill: st.fill ? st.fill.css : null, width: st.width, b: boundsOf(pts, st.width * 1.2 + 1),
+    };
+  }
+  function parseText(v) {
+    const ts = v.text_style || {};
+    const m = affine(v.transform);
+    const size = num(ts.font_size, 32);
+    const text = typeof v.text === 'string' ? v.text : '';
+    const maxW = num(ts.max_width, 0);
+    const lines = text.split('\n');
+    const w = maxW > 0 ? maxW : Math.max(1, ...lines.map(l => l.length)) * size * 0.55;
+    let nl = 0;
+    for (const l of lines) nl += maxW > 0 ? Math.max(1, Math.ceil(l.length * size * 0.55 / maxW)) : 1;
+    const h = nl * size * 1.25;
+    const b = boundsOf([[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => apply(m, x, y)), 2);
+    const fs = String(ts.font_style || '').toLowerCase();
+    return {
+      type: 'text', text, m, size, family: String(ts.font_family || 'serif'),
+      weight: num(ts.font_weight, 400), italic: fs.includes('italic') || fs.includes('oblique'),
+      color: (color(ts.color) || { css: 'rgb(0,0,0)' }).css, maxW, align: String(ts.alignment || 'start').toLowerCase(), b,
+    };
+  }
+  function b64(s) {
+    const bin = atob(s); const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  }
+  function parseImage(v, bitmap) {
+    const img = v.image || {};
+    const rect = v.rectangle || img.rect || v.rect || {};
+    const m = affine(rect.transform);
+    const [hx, hy] = halfExt(rect);
+    const b = boundsOf([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([x, y]) => apply(m, x, y)), 1);
+    if (bitmap) {
+      let data = img.data;
+      if (typeof data === 'string') data = b64(data); else if (Array.isArray(data)) data = Uint8Array.from(data); else data = new Uint8Array(0);
+      return { type: 'bitmap', m, hx, hy, data, w: num(img.pixel_width), h: num(img.pixel_height), fmt: String(img.memory_format || ''), b };
+    }
+    return { type: 'svg', m, hx, hy, svg: typeof v.svg_data === 'string' ? v.svg_data : '', b };
+  }
+  function parseStroke(raw) {
+    const [k, v] = tagged(raw);
+    if (!v || typeof v !== 'object') return null;
+    if (k === 'brushstroke') return parseBrush(v);
+    if (k === 'shapestroke') return parseShape(v);
+    if (k === 'textstroke') return parseText(v);
+    if (k === 'bitmapimage') return parseImage(v, true);
+    if (k === 'vectorimage') return parseImage(v, false);
+    return { type: 'unsupported', kind: k || 'unknown' };
+  }
+
+  function parseDoc(d) {
+    d = d || {};
+    const cfg = d.config || d;
+    const fmt = cfg.format || d.format || {};
+    const bg = cfg.background || d.background || {};
+    const layout = String(cfg.layout !== undefined ? cfg.layout : (d.layout !== undefined ? d.layout : '')).toLowerCase();
+    const pc = color(bg.pattern_color);
+    return {
+      x: num(d.x), y: num(d.y), w: num(d.width), h: num(d.height),
+      pageW: num(fmt.width, 794), pageH: num(fmt.height, 1123),
+      bg: color(bg.color) || { css: 'rgb(255,255,255)', a: 1 },
+      pattern: typeof bg.pattern === 'string' ? bg.pattern.toLowerCase() : (bg.pattern && typeof bg.pattern === 'object' ? Object.keys(bg.pattern)[0].toLowerCase() : 'none'),
+      patSize: bg.pattern_size ? pt(bg.pattern_size) : [32, 32],
+      patColor: pc ? pc.css : 'rgba(110,140,200,0.35)',
+      layout, infinite: layout.includes('infinite') || !(num(d.width) > 0 && num(d.height) > 0),
+    };
+  }
+  function findSnapshot(root) {
+    const q = [[root, 0]];
+    while (q.length) {
+      const [o, d] = q.shift();
+      if (!o || typeof o !== 'object' || Array.isArray(o)) continue;
+      if ('stroke_components' in o) return o;
+      if (d < 3) for (const v of Object.values(o)) q.push([v, d + 1]);
+    }
+    return null;
+  }
+
+  function parse(text) {
+    let root;
+    try { root = JSON.parse(text); }
+    catch (e) { throw new Error('The file unpacked, but its contents are not JSON. It may use a newer binary serialization that this viewer does not read yet.'); }
+    const snap = findSnapshot(root);
+    if (!snap) throw new Error('No drawing data found. This does not look like an Rnote document.');
+    const strokes = unslot(snap.stroke_components);
+    const chrono = unslot(snap.chrono_components);
+    const aligned = chrono.length === strokes.length;
+    const items = [], unsupported = {};
+    strokes.forEach((raw, i) => {
+      if (!raw) return;
+      let it = null;
+      try { it = parseStroke(raw); } catch (e) { unsupported.malformed = (unsupported.malformed || 0) + 1; return; }
+      if (!it) return;
+      if (it.type === 'unsupported') { unsupported[it.kind] = (unsupported[it.kind] || 0) + 1; return; }
+      const c = aligned ? chrono[i] : null;
+      it.t = (c && typeof c === 'object' && typeof c.t === 'number') ? c.t : i;
+      it.i = i;
+      items.push(it);
+    });
+    items.sort((a, b) => a.t - b.t || a.i - b.i);
+    const doc = parseDoc(snap.document || root.document);
+    let bounds = null;
+    for (const it of items) {
+      if (!bounds) bounds = it.b.slice();
+      else { bounds[0] = Math.min(bounds[0], it.b[0]); bounds[1] = Math.min(bounds[1], it.b[1]); bounds[2] = Math.max(bounds[2], it.b[2]); bounds[3] = Math.max(bounds[3], it.b[3]); }
+    }
+    if (!bounds) bounds = doc.w > 0 ? [doc.x, doc.y, doc.x + doc.w, doc.y + doc.h] : [0, 0, 800, 600];
+    const ver = root.version !== undefined ? root.version : (root.header && root.header.version);
+    return { doc, items, bounds, unsupported, version: typeof ver === 'string' ? ver : '' };
+  }
+
+  async function decodeToText(u8) {
+    if (u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+      if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot decompress gzip files. Try a current version of Chrome, Edge, Firefox or Safari.');
+      const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'));
+      const out = new Uint8Array(await new Response(stream).arrayBuffer());
+      return new TextDecoder().decode(out);
+    }
+    if (u8.length >= 4 && u8[0] === 0x28 && u8[1] === 0xb5 && u8[2] === 0x2f && u8[3] === 0xfd)
+      throw new Error('This file uses zstd compression, which this viewer cannot read yet. Re-save it from Rnote, or convert it to the gzip + JSON format.');
+    let i = 0; while (i < u8.length && u8[i] <= 32) i++;
+    if (u8[i] === 0x7b) return new TextDecoder().decode(u8);
+    throw new Error('Unrecognized file format. Expected a gzip-compressed Rnote document.');
+  }
+
+  /* ---- built-in sample, shaped like a real file: slotmaps with a sentinel slot, externally tagged enums ---- */
+  function sampleSnapshot() {
+    const rows = [{ value: null, version: 0 }], chr = [{ value: null, version: 0 }];
+    let n = 0;
+    const add = s => { n++; rows.push({ value: s, version: 1 }); chr.push({ value: { t: n, layer: 'userlayer' }, version: 1 }); };
+    const E = (x, y, p = 0.5) => ({ pos: [x, y], pressure: p });
+    const C = (r, g, b, a = 1) => ({ r, g, b, a });
+    const T = (x, y, rot = 0) => ({ affine: [Math.cos(rot), Math.sin(rot), 0, -Math.sin(rot), Math.cos(rot), 0, x, y, 1] });
+    const smooth = (pts, w, c, curve) => {
+      const seg = [];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        seg.push({ quadbezto: { cp: [a[0], a[1]], end: E((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2) } });
+      }
+      const l = pts[pts.length - 1];
+      seg.push({ lineto: { end: E(l[0], l[1], l[2]) } });
+      return { brushstroke: { path: { start: E(...pts[0]), seg }, style: { smooth: { stroke_width: w, stroke_color: c, fill_color: null, pressure_curve: curve } } } };
+    };
+    const shape = (shp, w, stroke, fill) => ({ shapestroke: { shape: shp, style: { smooth: { stroke_width: w, stroke_color: stroke, fill_color: fill, pressure_curve: 'const' } } } });
+    const text = (s, x, y, size, c, maxW, weight = 400) => ({ textstroke: { text: s, transform: T(x, y), text_style: { font_family: 'sans-serif', font_size: size, font_weight: weight, font_style: 'Regular', color: c, max_width: maxW, alignment: 'Start' } } });
+
+    add(smooth([[-310, -228, .5], [-120, -232, .5], [70, -226, .5]], 26, C(1, .88, .2, .45), 'const'));
+    add(text('Rnote Viewer sample', -300, -262, 40, C(.1, .12, .18), null, 600));
+    const wave = []; for (let x = -300; x <= 300; x += 15) wave.push([x, -110 + 38 * Math.sin(x / 45), .25 + .65 * Math.abs(Math.sin(x / 90))]);
+    add(smooth(wave, 7, C(.12, .15, .22), 'linear'));
+    const sp = []; for (let a = 0; a < 12.6; a += .25) sp.push([-170 + (4 + a * 5.4) * Math.cos(a), 130 + (4 + a * 5.4) * Math.sin(a), .45 + .4 * Math.sin(a / 2) ** 2]);
+    add(smooth(sp, 4, C(.1, .45, .35), 'linear'));
+    add(shape({ rectangle: { cuboid: { half_extents: [90, 55] }, transform: T(130, 130, .12) } }, 3, C(.17, .42, .84), C(.17, .42, .84, .18)));
+    add(shape({ ellipse: { radii: [70, 45], transform: T(430, 130) } }, 3, C(.8, .3, .2), C(.8, .3, .2, .15)));
+    add(shape({ arrow: { start: [225, 132], tip: [352, 130] } }, 3, C(.15, .15, .2), null));
+    add(shape({ cubbez: { start: [-310, 270], cp1: [-200, 170], cp2: [-100, 370], end: [0, 270] } }, 3, C(.8, .2, .25), null));
+    add(text('Strokes, shapes, text and images from a .rnote file are drawn on an unbounded canvas. Drag to pan, scroll or pinch to zoom.', 60, 215, 18, C(.15, .17, .22), 340));
+    const px = new Uint8Array(48 * 48 * 4);
+    for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) { const i = (y * 48 + x) * 4; px[i] = 40 + x * 4; px[i + 1] = 90 + y * 3; px[i + 2] = 200 - x * 2; px[i + 3] = 255; }
+    let bin = ''; for (let i = 0; i < px.length; i++) bin += String.fromCharCode(px[i]);
+    add({ bitmapimage: { image: { data: btoa(bin), pixel_width: 48, pixel_height: 48, memory_format: 'R8g8b8a8Premultiplied' }, rectangle: { cuboid: { half_extents: [60, 60] }, transform: T(400, -150) } } });
+    add(shape({ arrow: { start: [520, 215], tip: [2430, 830] } }, 2, C(.5, .55, .62), null));
+    const star = []; for (let i = 0; i < 10; i++) { const r = i % 2 ? 50 : 120, a = -Math.PI / 2 + i * Math.PI / 5; star.push([2600 + r * Math.cos(a), 900 + r * Math.sin(a)]); }
+    add(shape({ polygon: { start: star[0], path: star.slice(1) } }, 3, C(.65, .45, .05), C(1, .8, .2, .7)));
+    add(text('Far away. Pan, or click the overview map.', 2400, 1050, 22, C(.15, .17, .22), null, 500));
+    return {
+      document: { x: 0, y: 0, width: 0, height: 0, config: { format: { width: 794, height: 1123, dpi: 96 }, layout: 'Infinite', background: { color: C(1, 1, 1), pattern: 'grid', pattern_size: [32, 32], pattern_color: C(.55, .65, .85, .35) } } },
+      stroke_components: rows, chrono_components: chr, chrono_counter: n,
+    };
+  }
+  return { parse, decodeToText, sampleSnapshot, affine, apply, unslot };
+})();
+//#CORE-END
+
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const stage = $('#stage'), cv = $('#cv'), ctx = cv.getContext('2d');
+  const mini = $('#mini'), mctx = mini.getContext('2d');
+  const fmt = n => Math.round(n).toLocaleString('en-US').replace('-', '−');
+  let model = null, cam = { tx: 0, ty: 0, k: 1 }, W = 0, H = 0, dpr = 1, raf = 0;
+  let miniCache = null, miniMap = null, accent = '#2c6bd6';
+
+  function refreshTheme() { accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || accent; requestRender(); }
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshTheme);
+  new MutationObserver(refreshTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  /* ---------- camera ---------- */
+  const clampK = k => Math.min(40, Math.max(0.02, k));
+  function zoomAt(cx, cy, f) {
+    const nk = clampK(cam.k * f), r = nk / cam.k;
+    cam.tx = cx - (cx - cam.tx) * r; cam.ty = cy - (cy - cam.ty) * r; cam.k = nk; requestRender();
+  }
+  function fitAll() {
+    if (!model) return;
+    const [x0, y0, x1, y1] = model.doc.infinite ? model.bounds : [model.doc.x, model.doc.y, model.doc.x + model.doc.w, model.doc.y + model.doc.h];
+    const m = 48, bw = Math.max(1, x1 - x0), bh = Math.max(1, y1 - y0);
+    cam.k = clampK(Math.min((W - 2 * m) / bw, (H - 2 * m) / bh, 4));
+    cam.tx = W / 2 - (x0 + bw / 2) * cam.k; cam.ty = H / 2 - (y0 + bh / 2) * cam.k; requestRender();
+  }
+  function initialView() {
+    const d = model.doc;
+    if (!d.infinite) {
+      cam.k = clampK((W - 48) / d.w); cam.tx = W / 2 - (d.x + d.w / 2) * cam.k; cam.ty = 24 - d.y * cam.k; requestRender();
+    } else fitAll();
+  }
+
+  /* ---------- images / svg (lazy) ---------- */
+  function ensureImage(it) {
+    if (it.state) return;
+    it.state = 'loading';
+    if (it.type === 'bitmap') {
+      const d = it.data;
+      const png = d[0] === 0x89 && d[1] === 0x50, jpg = d[0] === 0xff && d[1] === 0xd8;
+      if (png || jpg) {
+        createImageBitmap(new Blob([d])).then(bm => { it.img = bm; it.state = 'ready'; requestRender(); }).catch(() => { it.state = 'failed'; requestRender(); });
+      } else if (it.w > 0 && it.h > 0 && d.length >= it.w * it.h * 4) {
+        const c = document.createElement('canvas'); c.width = it.w; c.height = it.h;
+        const c2 = c.getContext('2d'), id = c2.createImageData(it.w, it.h);
+        const bgr = /b8g8r8a8/i.test(it.fmt), pre = /premultiplied/i.test(it.fmt);
+        for (let i = 0; i < it.w * it.h * 4; i += 4) {
+          let r = d[i], g = d[i + 1], b = d[i + 2]; const a = d[i + 3];
+          if (bgr) { const t = r; r = b; b = t; }
+          if (pre && a > 0 && a < 255) { const f = 255 / a; r = Math.min(255, r * f); g = Math.min(255, g * f); b = Math.min(255, b * f); }
+          id.data[i] = r; id.data[i + 1] = g; id.data[i + 2] = b; id.data[i + 3] = a;
+        }
+        c2.putImageData(id, 0, 0); it.img = c; it.state = 'ready';
+      } else it.state = 'failed';
+    } else {
+      const im = new Image(), url = URL.createObjectURL(new Blob([it.svg], { type: 'image/svg+xml' }));
+      im.onload = () => { it.img = im; it.state = 'ready'; requestRender(); };
+      im.onerror = () => { it.state = 'failed'; requestRender(); };
+      im.src = url;
+    }
+  }
+
+  /* ---------- drawing ---------- */
+  const curveFn = { const: () => 1, linear: p => p, square: p => p * p, cubic: p => p * p * p };
+  function drawBrush(c, it) {
+    const n = it.xs.length; if (!n) return;
+    c.strokeStyle = it.color; c.fillStyle = it.color; c.lineCap = 'round'; c.lineJoin = 'round';
+    if (n === 1) { c.beginPath(); c.arc(it.xs[0], it.ys[0], it.width / 2, 0, 6.2832); c.fill(); return; }
+    if (it.curve === 'const' || !curveFn[it.curve]) {
+      if (!it.p2) { const p = new Path2D(); p.moveTo(it.xs[0], it.ys[0]); for (let i = 1; i < n; i++) p.lineTo(it.xs[i], it.ys[i]); it.p2 = p; }
+      c.lineWidth = it.width; c.stroke(it.p2); return;
+    }
+    const f = curveFn[it.curve];
+    const wAt = i => it.width * Math.min(1, Math.max(0.2, f(it.ps[i])));
+    let q = Math.round(wAt(1) * 4) / 4;
+    c.beginPath(); c.moveTo(it.xs[0], it.ys[0]);
+    for (let i = 1; i < n; i++) {
+      const nq = Math.round(((wAt(i) + wAt(i - 1)) / 2) * 4) / 4;
+      if (nq !== q) { c.lineWidth = q; c.stroke(); c.beginPath(); c.moveTo(it.xs[i - 1], it.ys[i - 1]); q = nq; }
+      c.lineTo(it.xs[i], it.ys[i]);
+    }
+    c.lineWidth = q; c.stroke();
+  }
+  function drawShape(c, it) {
+    const s = it.shape;
+    c.save();
+    if (s.m) c.transform(...s.m);
+    c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = it.width;
+    c.beginPath();
+    if (s.kind === 'line') { c.moveTo(...s.a); c.lineTo(...s.b); }
+    else if (s.kind === 'arrow') {
+      c.moveTo(...s.a); c.lineTo(...s.b);
+      const ang = Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]), L = Math.max(it.width * 4, 10);
+      for (const d of [-0.5, 0.5]) { c.moveTo(...s.b); c.lineTo(s.b[0] - L * Math.cos(ang + d), s.b[1] - L * Math.sin(ang + d)); }
+    }
+    else if (s.kind === 'quad') { c.moveTo(...s.a); c.quadraticCurveTo(...s.c, ...s.b); }
+    else if (s.kind === 'cubic') { c.moveTo(...s.a); c.bezierCurveTo(...s.c1, ...s.c2, ...s.b); }
+    else if (s.kind === 'polyline' || s.kind === 'polygon') { s.pts.forEach((p, i) => i ? c.lineTo(...p) : c.moveTo(...p)); if (s.kind === 'polygon') c.closePath(); }
+    else if (s.kind === 'rect') c.rect(-s.hx, -s.hy, s.hx * 2, s.hy * 2);
+    else if (s.kind === 'ellipse') c.ellipse(0, 0, Math.abs(s.hx), Math.abs(s.hy), 0, 0, 6.2832);
+    if (it.fill) { c.fillStyle = it.fill; c.fill(); }
+    if (it.stroke) { c.strokeStyle = it.stroke; c.stroke(); }
+    c.restore();
+  }
+  function fontStack(f) {
+    const l = f.toLowerCase();
+    if (l.includes('mono') || l.includes('tt2020')) return `"${f}", ui-monospace, Menlo, monospace`;
+    if (l.includes('virgil')) return `"${f}", "Comic Sans MS", "Segoe Print", cursive`;
+    if (l === 'serif' || l === 'sans-serif' || l === 'monospace') return l;
+    return `"${f}", system-ui, sans-serif`;
+  }
+  function drawText(c, it) {
+    c.save(); c.transform(...it.m);
+    c.fillStyle = it.color; c.textBaseline = 'top';
+    c.font = `${it.italic ? 'italic ' : ''}${it.weight} ${it.size}px ${fontStack(it.family)}`;
+    const lh = it.size * 1.25; let y = 0;
+    c.textAlign = it.maxW > 0 ? (it.align.includes('center') ? 'center' : (it.align.includes('end') || it.align.includes('right')) ? 'right' : 'left') : 'left';
+    const ax = c.textAlign === 'center' ? it.maxW / 2 : c.textAlign === 'right' ? it.maxW : 0;
+    for (const para of it.text.split('\n')) {
+      if (it.maxW <= 0) { c.fillText(para, 0, y); y += lh; continue; }
+      let line = '';
+      for (const word of para.split(' ')) {
+        const t = line ? line + ' ' + word : word;
+        if (line && c.measureText(t).width > it.maxW) { c.fillText(line, ax, y); y += lh; line = word; } else line = t;
+      }
+      c.fillText(line, ax, y); y += lh;
+    }
+    c.restore();
+  }
+  function drawImageItem(c, it) {
+    ensureImage(it);
+    c.save(); c.transform(...it.m);
+    if (it.state === 'ready') c.drawImage(it.img, -it.hx, -it.hy, it.hx * 2, it.hy * 2);
+    else { c.fillStyle = 'rgba(128,140,160,.18)'; c.fillRect(-it.hx, -it.hy, it.hx * 2, it.hy * 2); c.strokeStyle = 'rgba(128,140,160,.6)'; c.lineWidth = 1 / cam.k; c.strokeRect(-it.hx, -it.hy, it.hx * 2, it.hy * 2); }
+    c.restore();
+  }
+  function drawItem(c, it) {
+    if (it.type === 'brush') drawBrush(c, it);
+    else if (it.type === 'shape') drawShape(c, it);
+    else if (it.type === 'text') drawText(c, it);
+    else drawImageItem(c, it);
+  }
+
+  let showGrid = true;
+  try { showGrid = localStorage.getItem('rnote-grid') !== 'off'; } catch (e) {}
+  function syncGridBtn() { const b = $('#gridBtn'); b.setAttribute('aria-pressed', String(showGrid)); b.textContent = showGrid ? 'Grid: on' : 'Grid: off'; }
+  $('#gridBtn').onclick = () => {
+    showGrid = !showGrid; syncGridBtn(); requestRender();
+    try { localStorage.setItem('rnote-grid', showGrid ? 'on' : 'off'); } catch (e) {}
+  };
+  syncGridBtn();
+
+  function drawPattern(d, vx0, vy0, vx1, vy1) {
+    if (!showGrid || d.pattern === 'none' || !d.pattern) return;
+    const [pw, ph] = d.patSize, k = cam.k;
+    if (pw <= 0 || ph <= 0 || pw * k < 7 || ph * k < 7) return;
+    const i0 = Math.floor((vx0 - d.x) / pw), i1 = Math.ceil((vx1 - d.x) / pw);
+    const j0 = Math.floor((vy0 - d.y) / ph), j1 = Math.ceil((vy1 - d.y) / ph);
+    if ((i1 - i0) * (j1 - j0) > 40000 && d.pattern.includes('dot')) return;
+    ctx.save();
+    if (!d.infinite) { ctx.beginPath(); ctx.rect(d.x * k + cam.tx, d.y * k + cam.ty, d.w * k, d.h * k); ctx.clip(); }
+    ctx.strokeStyle = d.patColor; ctx.fillStyle = d.patColor; ctx.lineWidth = 1;
+    const sx = i => Math.round((d.x + i * pw) * k + cam.tx) + 0.5, sy = j => Math.round((d.y + j * ph) * k + cam.ty) + 0.5;
+    ctx.beginPath();
+    if (d.pattern.includes('dot')) {
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) ctx.rect(sx(i) - 1, sy(j) - 1, 2, 2);
+      ctx.fill();
+    } else {
+      if (d.pattern.includes('grid') || d.pattern.includes('check') || d.pattern.includes('line')) for (let j = j0; j <= j1; j++) { ctx.moveTo(0, sy(j)); ctx.lineTo(W, sy(j)); }
+      if (d.pattern.includes('grid') || d.pattern.includes('check')) for (let i = i0; i <= i1; i++) { ctx.moveTo(sx(i), 0); ctx.lineTo(sx(i), H); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function render() {
+    raf = 0;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (!model) return;
+    const d = model.doc, k = cam.k;
+    const vx0 = -cam.tx / k, vy0 = -cam.ty / k, vx1 = (W - cam.tx) / k, vy1 = (H - cam.ty) / k;
+    if (d.infinite) { ctx.fillStyle = d.bg.css; ctx.fillRect(0, 0, W, H); }
+    else {
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.28)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 3;
+      ctx.fillStyle = d.bg.css; ctx.fillRect(d.x * k + cam.tx, d.y * k + cam.ty, d.w * k, d.h * k); ctx.restore();
+      if (d.pageH > 0 && d.h > d.pageH * 1.5) {
+        ctx.save(); ctx.strokeStyle = 'rgba(120,130,150,.5)'; ctx.setLineDash([6, 5]); ctx.lineWidth = 1; ctx.beginPath();
+        for (let y = d.y + d.pageH; y < d.y + d.h - 1; y += d.pageH) { const sy = Math.round(y * k + cam.ty) + 0.5; ctx.moveTo(d.x * k + cam.tx, sy); ctx.lineTo((d.x + d.w) * k + cam.tx, sy); }
+        ctx.stroke(); ctx.restore();
+      }
+    }
+    drawPattern(d, vx0, vy0, vx1, vy1);
+    ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * cam.tx, dpr * cam.ty);
+    const minPx = 0.4 / k;
+    for (const it of model.items) {
+      const b = it.b;
+      if (b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1) continue;
+      if (b[2] - b[0] < minPx && b[3] - b[1] < minPx) continue;
+      ctx.globalAlpha = it.type === 'brush' ? it.alpha : 1;
+      drawItem(ctx, it);
+    }
+    ctx.globalAlpha = 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    $('#zval').textContent = Math.round(k * 100) + '%';
+    drawMiniFrame(vx0, vy0, vx1, vy1);
+  }
+  function requestRender() { if (!raf) raf = requestAnimationFrame(render); }
+
+  /* ---------- overview map ---------- */
+  function buildMini() {
+    if (!model) return;
+    const B = model.bounds.slice(), pad = 40;
+    B[0] -= pad; B[1] -= pad; B[2] += pad; B[3] += pad;
+    const bw = B[2] - B[0], bh = B[3] - B[1];
+    const maxW = innerWidth < 520 ? 120 : 168, maxH = innerWidth < 520 ? 84 : 112;
+    const s = Math.min(maxW / bw, maxH / bh), mw = Math.max(40, Math.round(bw * s)), mh = Math.max(30, Math.round(bh * s));
+    const r = Math.min(devicePixelRatio || 1, 2);
+    mini.style.width = mw + 'px'; mini.style.height = mh + 'px'; mini.width = mw * r; mini.height = mh * r;
+    miniCache = document.createElement('canvas'); miniCache.width = mw * r; miniCache.height = mh * r;
+    const c = miniCache.getContext('2d');
+    c.setTransform(r, 0, 0, r, 0, 0);
+    c.fillStyle = model.doc.bg.css; c.fillRect(0, 0, mw, mh);
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    for (const it of model.items) {
+      if (it.type === 'brush') {
+        c.strokeStyle = it.color; c.lineWidth = Math.max(0.7, it.width * s); c.beginPath();
+        const step = Math.max(1, Math.floor(it.xs.length / 60));
+        for (let i = 0; i < it.xs.length; i += step) { const x = (it.xs[i] - B[0]) * s, y = (it.ys[i] - B[1]) * s; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+        c.stroke();
+      } else {
+        c.fillStyle = it.type === 'text' ? 'rgba(90,100,120,.55)' : 'rgba(90,120,170,.4)';
+        c.fillRect((it.b[0] - B[0]) * s, (it.b[1] - B[1]) * s, Math.max(1, (it.b[2] - it.b[0]) * s), Math.max(1, (it.b[3] - it.b[1]) * s));
+      }
+    }
+    miniMap = { s, B, mw, mh, r };
+  }
+  function drawMiniFrame(vx0, vy0, vx1, vy1) {
+    if (!miniCache || !miniMap) return;
+    const { s, B, mw, mh, r } = miniMap;
+    mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.clearRect(0, 0, mini.width, mini.height);
+    mctx.drawImage(miniCache, 0, 0);
+    mctx.setTransform(r, 0, 0, r, 0, 0);
+    const x = (vx0 - B[0]) * s, y = (vy0 - B[1]) * s, w = (vx1 - vx0) * s, h = (vy1 - vy0) * s;
+    mctx.save(); mctx.beginPath(); mctx.rect(0, 0, mw, mh); mctx.clip();
+    mctx.fillStyle = accent; mctx.globalAlpha = 0.14; mctx.fillRect(x, y, w, h); mctx.globalAlpha = 1;
+    mctx.strokeStyle = accent; mctx.lineWidth = 1.5; mctx.strokeRect(x, y, w, h); mctx.restore();
+  }
+  function miniGo(e) {
+    if (!miniMap) return;
+    const rc = mini.getBoundingClientRect(), { s, B } = miniMap;
+    const wx = B[0] + (e.clientX - rc.left) / s, wy = B[1] + (e.clientY - rc.top) / s;
+    cam.tx = W / 2 - wx * cam.k; cam.ty = H / 2 - wy * cam.k; requestRender();
+  }
+  let miniDown = false;
+  mini.addEventListener('pointerdown', e => { miniDown = true; mini.setPointerCapture(e.pointerId); miniGo(e); });
+  mini.addEventListener('pointermove', e => { if (miniDown) miniGo(e); });
+  mini.addEventListener('pointerup', () => { miniDown = false; });
+
+  /* ---------- input ---------- */
+  const ptrs = new Map();
+  let pinch = null;
+  const local = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId); cv.focus({ preventScroll: true });
+    ptrs.set(e.pointerId, local(e)); cv.classList.add('dragging');
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = local(e);
+    if (!ptrs.has(e.pointerId)) { setCoords(p); return; }
+    const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
+    if (ptrs.size === 1) { cam.tx += p.x - prev.x; cam.ty += p.y - prev.y; requestRender(); setCoords(p); }
+    else if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+      cam.tx += cx - pinch.cx; cam.ty += cy - pinch.cy;
+      if (pinch.d > 0 && d > 0) zoomAt(cx, cy, d / pinch.d);
+      pinch = { d, cx, cy }; requestRender();
+    }
+  });
+  const up = e => { ptrs.delete(e.pointerId); pinch = null; if (!ptrs.size) cv.classList.remove('dragging'); };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const p = local(e);
+    const mouse = e.deltaMode === 1 || (e.deltaX === 0 && Math.abs(e.deltaY) >= 50 && Number.isInteger(e.deltaY));
+    if (e.ctrlKey || e.metaKey) zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.01));
+    else if (mouse) zoomAt(p.x, p.y, Math.exp(-(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) * 0.0015));
+    else { cam.tx -= e.deltaX; cam.ty -= e.deltaY; requestRender(); }
+    setCoords(p);
+  }, { passive: false });
+  cv.addEventListener('keydown', e => {
+    const cx = W / 2, cy = H / 2, step = 60;
+    if (e.key === '+' || e.key === '=') zoomAt(cx, cy, 1.25);
+    else if (e.key === '-' || e.key === '_') zoomAt(cx, cy, 0.8);
+    else if (e.key === '0') zoomAt(cx, cy, 1 / cam.k);
+    else if (e.key === 'f' || e.key === 'F') fitAll();
+    else if (e.key === 'ArrowLeft') { cam.tx += step; requestRender(); }
+    else if (e.key === 'ArrowRight') { cam.tx -= step; requestRender(); }
+    else if (e.key === 'ArrowUp') { cam.ty += step; requestRender(); }
+    else if (e.key === 'ArrowDown') { cam.ty -= step; requestRender(); }
+    else return;
+    e.preventDefault();
+  });
+  let coordPending = null;
+  function setCoords(p) {
+    if (coordPending) { coordPending = p; return; }
+    coordPending = p;
+    requestAnimationFrame(() => { const q = coordPending; coordPending = null; $('#cx').textContent = fmt((q.x - cam.tx) / cam.k); $('#cy').textContent = fmt((q.y - cam.ty) / cam.k); });
+  }
+  $('#zin').onclick = () => zoomAt(W / 2, H / 2, 1.25);
+  $('#zout').onclick = () => zoomAt(W / 2, H / 2, 0.8);
+  $('#zval').onclick = () => zoomAt(W / 2, H / 2, 1 / cam.k);
+  $('#fit').onclick = fitAll;
+
+  /* ---------- loading ---------- */
+  function showNotice(msg) { $('#noticeText').textContent = msg; $('#notice').hidden = !msg; }
+  $('#noticeX').onclick = () => showNotice('');
+  function setModel(m, name, extra) {
+    model = m;
+    $('#fname').textContent = name;
+    const w = m.bounds[2] - m.bounds[0], h = m.bounds[3] - m.bounds[1];
+    $('#fmeta').textContent = [`${m.items.length.toLocaleString('en-US')} elements`, `${fmt(w)} × ${fmt(h)} px`, m.version ? `format ${m.version}` : '', extra].filter(Boolean).join(' · ');
+    const un = Object.entries(m.unsupported);
+    showNotice(un.length ? 'Not drawn: ' + un.map(([k, v]) => `${v} × ${k}`).join(', ') + '.' : (m.items.length ? '' : 'This file has no drawable elements.'));
+    buildMini(); initialView();
+  }
+  async function loadFile(file) {
+    $('#fmeta').textContent = 'Reading ' + file.name + '…';
+    try {
+      const u8 = new Uint8Array(await file.arrayBuffer());
+      const text = await Core.decodeToText(u8);
+      setModel(Core.parse(text), file.name, 'read locally');
+    } catch (err) {
+      showNotice(err && err.message ? err.message : 'Could not open this file.');
+      $('#fmeta').textContent = model ? 'Previous file still shown' : 'No file open';
+    }
+  }
+  $('#open').onclick = () => $('#file').click();
+  $('#file').onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; };
+  let dragN = 0;
+  addEventListener('dragenter', e => { e.preventDefault(); dragN++; $('#dropmask').hidden = false; });
+  addEventListener('dragleave', () => { dragN = Math.max(0, dragN - 1); if (!dragN) $('#dropmask').hidden = true; });
+  addEventListener('dragover', e => e.preventDefault());
+  addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#dropmask').hidden = true; const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+  function resize() {
+    const r = stage.getBoundingClientRect(); const first = !W;
+    W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height)); dpr = Math.min(devicePixelRatio || 1, 3);
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    if (first && model) initialView(); else requestRender();
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+  refreshTheme();
+  setModel(Core.parse(JSON.stringify(Core.sampleSnapshot())), 'Sample note (built in)', 'open your own file above');
+})();
+</script>
+
+</body></html>
