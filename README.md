@@ -5,3 +5,4 @@
 + [Electroid](https://itssuhail.github.io/Electroid) for charge motion simulation.
 + [Notie](https://itssuhail.github.io/Notie) for a versatile whiteboard.
 + [Arithma](https://itssuhail.github.io/Arithma) for practicing arithmetic calculations.
++ [RnoteViewer](https://itssuhail.github.io/RnoteViewer) for practicing arithmetic calculations.
